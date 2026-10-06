@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>EDIFACT-Viewer</title>
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-6GvcOIgZEGDVRM/acA9x24eNLFIsqAQMGXzOc6QPD6s='; style-src-elem 'sha256-AqvXT2gXVt0faCn7QgWDs8mns8NID78YyQ0DUUCXPuw='; style-src-attr 'unsafe-inline'; img-src data: blob:; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-2k4FzQ7BgtBDEV1QIUgYnVzSe0D4MMYEXrAxmR0E0jQ='; style-src-elem 'sha256-AqvXT2gXVt0faCn7QgWDs8mns8NID78YyQ0DUUCXPuw='; style-src-attr 'unsafe-inline'; img-src data: blob:; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="color-scheme" content="light dark">
 <style>
@@ -190,8 +190,8 @@ table.grid{ border-collapse:separate; border-spacing:0; width:max-content; min-w
   <div class="spacer"></div>
   <span class="lbl">Zeitangaben</span>
   <div class="toggle" id="tzToggle">
-    <button type="button" data-tz="UTC" aria-pressed="true">UTC</button>
-    <button type="button" data-tz="Europe/Berlin" aria-pressed="false">Deutsche Zeit</button>
+    <button type="button" data-tz="UTC" aria-pressed="false">UTC</button>
+    <button type="button" data-tz="Europe/Berlin" aria-pressed="true">Deutsche Zeit</button>
   </div>
   <button type="button" class="btn" id="btnPartner" title="Marktpartner-Nummern und Namen laden: CSV (Nummer;Name;Rolle, z. B. aus tools/bdew-codes-export.py) oder HAR/JSON von bdew-codes.de. Mehrfachauswahl möglich, neue Einträge werden ergänzt.">Marktpartner laden</button>
   <button type="button" class="btn" id="btnPartnerDel" title="Geladene Marktpartner-Liste löschen" hidden>Liste löschen</button>
@@ -803,7 +803,10 @@ function analyzeFile(name, size, text){
 /* ------------------------------------------------------------------ *
  *  Formatierung
  * ------------------------------------------------------------------ */
-const state = {tabs:[], active:null, tz:'UTC', seq:0};
+/* Standard: deutsche Zeit (Tage beginnen um 00:00 Ortszeit). Die Dateien enthalten UTC, UTC bleibt wählbar.
+   Die Wahl wird nur als Einstellung gemerkt, nie Dateiinhalte. */
+const state = {tabs:[], active:null, tz:'Europe/Berlin', seq:0};
+try { const z = localStorage.getItem('edifact-viewer-tz'); if (z === 'UTC' || z === 'Europe/Berlin') state.tz = z; } catch(e){}
 const fmtCache = {};
 function dtf(kind){
   const key = state.tz + kind;
@@ -1609,9 +1612,11 @@ function buildText(tab, sv){
 /* ------------------------------------------------------------------ *
  *  Zeitzone umschalten
  * ------------------------------------------------------------------ */
+document.querySelectorAll('#tzToggle button').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.tz === state.tz)));
 document.getElementById('tzToggle').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b || state.tz === b.dataset.tz) return;
   state.tz = b.dataset.tz;
+  try { localStorage.setItem('edifact-viewer-tz', state.tz); } catch(e){}
   b.parentNode.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
   refreshAll();
 });
