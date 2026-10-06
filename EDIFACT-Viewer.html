@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>EDIFACT-Viewer</title>
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-vZZP5rabFRwc9qkP+pFo3XmegE1lXg7aCJ065Mp7GvA='; style-src-elem 'sha256-AqvXT2gXVt0faCn7QgWDs8mns8NID78YyQ0DUUCXPuw='; style-src-attr 'unsafe-inline'; img-src data: blob:; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-6GvcOIgZEGDVRM/acA9x24eNLFIsqAQMGXzOc6QPD6s='; style-src-elem 'sha256-AqvXT2gXVt0faCn7QgWDs8mns8NID78YyQ0DUUCXPuw='; style-src-attr 'unsafe-inline'; img-src data: blob:; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="color-scheme" content="light dark">
 <style>
@@ -624,6 +624,9 @@ function analyzeMscons(msg){
     sr.to = last ? (last.t2 || last.t) : l.to;
     sr.count = vals.length;
     sr.subst = vals.filter(v => v.q && v.q !== '220').length;
+    const qc = {};
+    for (const v of vals) if (v.q && v.q !== '220') qc[v.q] = (qc[v.q] || 0) + 1;
+    sr.quals = Object.keys(qc).sort().map(q => ({q, n:qc[q], name:QUAL.QTY[q] || 'Qualifier ' + q}));
     series.push(sr);
   }
   return {locs, series};
@@ -1061,6 +1064,16 @@ class Chart {
       }
     }
     ctx.stroke();
+    if (n > P.w / 2){
+      // zu dicht für Einzelpunkte: orangefarbene Leiste am unteren Rand überall dort, wo Werte nicht "wahr" (220) sind
+      ctx.fillStyle = col.warn;
+      let lastX = -1;
+      for (let i = i0; i <= i1; i++){
+        if (!(d[i].q && d[i].q !== '220')) continue;
+        const x = Math.floor(X(d[i].t));
+        if (x !== lastX){ ctx.fillRect(x, P.y + P.h - 4, 1, 4); lastX = x; }
+      }
+    }
     if (n <= P.w / 2){
       ctx.fillStyle = col.warn;
       for (let i = i0; i <= i1; i++){ const p = d[i]; if (p.q && p.q !== '220'){ ctx.beginPath(); ctx.arc(X(this.mode === 'step' && p.t2 ? (p.t + p.t2) / 2 : p.t), Yp(p.v), 3, 0, 7); ctx.fill(); } }
@@ -1324,7 +1337,7 @@ function buildMscons(tab, sv){
     <div class="split-h" role="separator" aria-label="Höhe der Tabelle ändern"></div>
     <div class="chart-blk">
       <div class="toolbar">
-        <span class="legend"><span><i style="background:var(--trace)"></i>Wert</span><span><i style="background:var(--warn);height:6px;width:6px;border-radius:50%"></i>Ersatz- oder Vorschlagswert</span></span>
+        <span class="legend"><span><i style="background:var(--trace)"></i>Wert</span><span class="qleg" hidden><i style="background:var(--warn);height:6px;width:6px;border-radius:50%"></i><span class="qtxt"></span></span></span>
         <span class="spacer"></span>
         <span class="lbl">Ziehen zum Zoomen, Doppelklick für den gesamten Zeitraum</span>
         <div class="toggle" data-g="mode"><button type="button" data-m="line" aria-pressed="true">Linie</button><button type="button" data-m="step" aria-pressed="false">Stufen</button><button type="button" data-m="list" aria-pressed="false">Werteliste</button></div>
@@ -1351,7 +1364,8 @@ function buildMscons(tab, sv){
     {label:'Minimum am', text:s => s.min ? fd(s.min.t) : '', sort:s => s.min && s.min.t ? +s.min.t : 0},
     {label:'Maximum', text:s => s.max ? fn(s.max.v) : '', sort:s => s.max ? s.max.v : 0, csv:s => s.max ? csvNum(s.max.v) : '', num:true},
     {label:'Maximum am', text:s => s.max ? fd(s.max.t) : '', sort:s => s.max && s.max.t ? +s.max.t : 0},
-    {label:'Ersatzwerte', text:s => s.subst ? nf0.format(s.subst) : '', sort:s => s.subst, num:true},
+    {label:'Nicht „wahr“', text:s => s.subst ? nf0.format(s.subst) : '', sort:s => s.subst, num:true},
+    {label:'Qualifier', text:s => s.quals.map(x => `${x.q} ${x.name}`).join(', ')},
     {label:'Absender', text:s => pl(s.msg.header.ms), cls:'mono'},
     {label:'Empfänger', text:s => pl(s.msg.header.mr), cls:'mono'},
     {label:'Nachricht', text:s => s.msg.ref, cls:'mono'}
@@ -1397,6 +1411,11 @@ function valCols(){
 function showSeries(tab, s){
   if (!s) return;
   const data = s.values.filter(v => v.t).map(v => ({t:+v.t, t2:v.t2 ? +v.t2 : null, v:v.v, q:v.q}));
+  const ql = tab.el.querySelector('.qleg');
+  if (ql){
+    ql.hidden = !s.quals.length;
+    ql.querySelector('.qtxt').textContent = s.quals.map(x => `${x.name} (Qualifier ${x.q}): ${nf0.format(x.n)} von ${nf0.format(s.count)}`).join(', ') + ' – kein wahrer Wert (220)';
+  }
   tab.chart.set(data, `${s.loc.id}  ${s.obis}  ${fd(s.from)} bis ${fd(s.to)}`, s.unit);
   tab.valGrid.setRows(s.values);
   tab.el.querySelectorAll('.tree .leaf.active').forEach(x => x.classList.remove('active'));
