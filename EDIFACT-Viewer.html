@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>EDIFACT-Viewer</title>
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-EGmx0fOKDzu2KAyFSfpAHWjS7B89K3iEzN+NQUr5Tcs='; style-src-elem 'sha256-AqvXT2gXVt0faCn7QgWDs8mns8NID78YyQ0DUUCXPuw='; style-src-attr 'unsafe-inline'; img-src data: blob:; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-vZZP5rabFRwc9qkP+pFo3XmegE1lXg7aCJ065Mp7GvA='; style-src-elem 'sha256-AqvXT2gXVt0faCn7QgWDs8mns8NID78YyQ0DUUCXPuw='; style-src-attr 'unsafe-inline'; img-src data: blob:; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="color-scheme" content="light dark">
 <style>
@@ -193,9 +193,9 @@ table.grid{ border-collapse:separate; border-spacing:0; width:max-content; min-w
     <button type="button" data-tz="UTC" aria-pressed="true">UTC</button>
     <button type="button" data-tz="Europe/Berlin" aria-pressed="false">Deutsche Zeit</button>
   </div>
-  <button type="button" class="btn" id="btnPartner" title="Liste mit Marktpartner-Nummern und Namen laden (CSV, Semikolon oder Tab getrennt)">Marktpartner laden</button>
+  <button type="button" class="btn" id="btnPartner" title="Marktpartner-Nummern und Namen laden: CSV (Nummer;Name;Rolle, z. B. aus tools/bdew-codes-export.py) oder HAR/JSON von bdew-codes.de. Mehrfachauswahl möglich, neue Einträge werden ergänzt.">Marktpartner laden</button>
   <button type="button" class="btn" id="btnPartnerDel" title="Geladene Marktpartner-Liste löschen" hidden>Liste löschen</button>
-  <input type="file" id="partnerInput" accept=".csv,.txt,.tsv,text/plain,text/csv" hidden>
+  <input type="file" id="partnerInput" accept=".csv,.txt,.tsv,.json,.har,text/plain,text/csv,application/json" multiple hidden>
   <button type="button" class="btn" id="btnCloseAll" title="Alle Dateien schließen und Daten aus dem Speicher entfernen" hidden>Alle schließen</button>
   <button type="button" class="btn primary" id="btnOpen">Dateien öffnen</button>
   <input type="file" id="fileInput" multiple hidden>
@@ -456,20 +456,100 @@ function describeSeg(s){
   return qt ? `${name} (${qt})` : name;
 }
 
-/* Marktpartner: Nummer -> Klarname. Es ist keine Liste eingebaut, sie wird aus einer eigenen Datei geladen. */
+/* Marktpartner: Nummer -> {n:Name, r:Marktrolle}. Es ist keine Liste eingebaut, sie wird aus einer eigenen Datei geladen
+   (CSV aus tools/bdew-codes-export.py, eigene CSV mit Nummer;Name oder eine HAR-/JSON-Aufzeichnung von bdew-codes.de). */
 const PARTNERS = new Map();
-function partnerName(id){ return PARTNERS.get(String(id || '').trim()) || ''; }
+function partnerName(id){ const p = PARTNERS.get(String(id || '').trim()); return p ? p.n : ''; }
+function partnerRole(id){ const p = PARTNERS.get(String(id || '').trim()); return p ? p.r : ''; }
 function pl(id){ const n = partnerName(id); return n ? `${id} ${n}` : (id || ''); }
+function csvFields(line){
+  const out = []; let cur = '', q = false;
+  for (let i = 0; i < line.length; i++){
+    const c = line[i];
+    if (q){ if (c === '"'){ if (line[i+1] === '"'){ cur += '"'; i++; } else q = false; } else cur += c; }
+    else if (c === '"') q = true;
+    else if (c === ';' || c === '\t'){ out.push(cur.trim()); cur = ''; }
+    else cur += c;
+  }
+  out.push(cur.trim());
+  return out;
+}
+/* Aufzeichnung der Seite bdew-codes.de (HAR oder reine JSON-Antwort). Aus den Antworten werden nur Nummer,
+   Firmenname und Marktrolle gelesen. Das Feld "ContactName" (Ansprechperson) wird nie angefasst. */
+function partnersFromJson(text){
+  const root = JSON.parse(text), bodies = [];
+  const entries = root && root.log && Array.isArray(root.log.entries) ? root.log.entries : null;
+  if (entries){
+    for (const e of entries){
+      const c = e && e.response && e.response.content;
+      if (!c || !c.text) continue;
+      try { bodies.push(JSON.parse(c.encoding === 'base64' ? atob(c.text) : c.text)); } catch(err){}
+    }
+  } else bodies.push(root);
+  const names = new Map(), codes = [];
+  for (const b of bodies){
+    for (const r of (b && Array.isArray(b.Records) ? b.Records : [])){
+      if (!r || typeof r !== 'object') continue;
+      if (typeof r.Company === 'string' && r.CompanyUId != null) names.set(r.CompanyUId, r.Company);
+      if (typeof r.BdewCode === 'string') codes.push({code:r.BdewCode, uid:r.CompanyUId, company:typeof r.Company === 'string' ? r.Company : '', role:typeof r.MarketFunctionName === 'string' ? r.MarketFunctionName : ''});
+    }
+  }
+  const out = new Map(); let unresolved = 0;
+  for (const c of codes){
+    const name = c.company || names.get(c.uid) || '';
+    if (!/^\d{13}$/.test(c.code)) continue;
+    if (!name){ unresolved++; continue; }
+    if (out.size < 200000) out.set(c.code, {n:name.slice(0, 200), r:c.role.slice(0, 60)});
+  }
+  out.unresolved = unresolved;
+  return out;
+}
 function parsePartnerList(text){
+  text = text.replace(/^\uFEFF/, '');
+  if (/^\s*[{\[]/.test(text)) return partnersFromJson(text);
   const out = new Map();
-  for (const line of text.replace(/^\uFEFF/, '').split(/\r?\n/)){
-    const f = line.split(/[;\t,]/).map(x => x.trim().replace(/^"|"$/g, '').trim());
+  for (const line of text.split(/\r?\n/)){
+    const f = csvFields(line);
     const i = f.findIndex(x => /^\d{13}$/.test(x));
     if (i < 0) continue;
-    const name = f.slice(i + 1).find(x => x && !/^\d+$/.test(x)) || f.slice(0, i).reverse().find(x => x && !/^\d+$/.test(x));
-    if (name && out.size < 200000) out.set(f[i], name.slice(0, 200));
+    const rest = f.slice(i + 1).filter(x => x && !/^\d+$/.test(x));
+    const name = rest[0] || f.slice(0, i).reverse().find(x => x && !/^\d+$/.test(x));
+    if (name && out.size < 200000) out.set(f[i], {n:name.slice(0, 200), r:(rest[0] ? rest[1] : '') ? rest[1].slice(0, 60) : ''});
   }
+  out.unresolved = 0;
   return out;
+}
+
+/* MaLo <-> MeLo: aus den geöffneten UTILMD-/UTILTS-Dateien (gleicher Vorgang = zusammengehörig) */
+const isMalo = id => /^\d{11}$/.test(id || '');
+const isMelo = id => /^DE[0-9A-Z]{31}$/.test(id || '');
+let REL = null, relLast = 0;
+function relIndex(){
+  if (REL) return REL;
+  const melo = new Map(), malo = new Map();
+  let n = 0;
+  const add = (m, k, v) => { if (!m.has(k)) m.set(k, new Set()); const st = m.get(k); if (!st.has(v)){ st.add(v); return true; } return false; };
+  for (const t of state.tabs){
+    if (!t.res) continue;
+    for (const v of t.res.vorgaenge){
+      const ids = v.locs.map(l => l.id);
+      const ma = new Set(ids.filter(isMalo)), me = new Set(ids.filter(isMelo));
+      if (v.formula){ if (isMalo(v.formula.malo)) ma.add(v.formula.malo); v.formula.melos.filter(isMelo).forEach(x => me.add(x)); }
+      for (const a of ma) for (const b of me){ if (add(malo, a, b)) n++; add(melo, b, a); }
+    }
+  }
+  return REL = {melo, malo, n};
+}
+function relText(id){
+  const r = relIndex();
+  if (isMelo(id)){ const m = r.melo.get(id); return m ? 'MaLo ' + [...m].join(', ') : ''; }
+  if (isMalo(id)){ const m = r.malo.get(id); if (!m) return ''; const a = [...m]; return 'MeLo ' + a[0] + (a.length > 1 ? ` (+${a.length - 1})` : ''); }
+  return '';
+}
+function relRefresh(){
+  REL = null;
+  const n = relIndex().n;
+  if (n !== relLast){ relLast = n; refreshAll(); }
 }
 
 /* Lokationsart: zuerst am Format der Kennung, sonst am Qualifier im LOC-Segment */
@@ -1050,10 +1130,11 @@ async function openFiles(files){
     } catch(e){ toast(`${f.name}: ${e.message}`); }
   }
   if (last) activate(last);
+  relRefresh();
 }
 function closeAll(){
   for (const t of [...state.tabs]){ if (t.chart) t.chart.ro.disconnect(); t.el.remove(); }
-  state.tabs = []; state.active = null; offCache.clear();
+  state.tabs = []; state.active = null; offCache.clear(); REL = null; relLast = 0;
   renderTabStrip(); document.getElementById('empty').hidden = false;
   toast('Alle Dateien geschlossen, Daten aus dem Speicher entfernt');
 }
@@ -1074,6 +1155,7 @@ function closeTab(tab){
   renderTabStrip();
   const next = state.tabs[Math.min(i, state.tabs.length - 1)];
   if (next) activate(next); else document.getElementById('empty').hidden = false;
+  relRefresh();
 }
 function activate(tab){
   state.active = tab;
@@ -1171,7 +1253,7 @@ function renderProps(tab){
   if (tab.hash) rows.push(['SHA-256', `<span class="mono" style="word-break:break-all">${esc(tab.hash)}</span>`]);
   if (unb){
     rows.push(['Zeichensatz', `${esc(g(unb,0,0))}${g(unb,0,1) ? ' (Syntaxversion ' + esc(g(unb,0,1)) + ')' : ''}`]);
-    const party = i => `<span class="mono">${esc(g(unb,i,0))}</span>${g(unb,i,1) ? ` <span class="lbl">${esc(PARTNER_QUAL[g(unb,i,1)] || g(unb,i,1))}</span>` : ''}${partnerName(g(unb,i,0)) ? `<br><b>${esc(partnerName(g(unb,i,0)))}</b>` : ''}`;
+    const party = i => `<span class="mono">${esc(g(unb,i,0))}</span>${g(unb,i,1) ? ` <span class="lbl">${esc(PARTNER_QUAL[g(unb,i,1)] || g(unb,i,1))}</span>` : ''}${partnerName(g(unb,i,0)) ? `<br><b>${esc(partnerName(g(unb,i,0)))}</b>${partnerRole(g(unb,i,0)) ? ` <span class="lbl">${esc(partnerRole(g(unb,i,0)))}</span>` : ''}` : ''}`;
     rows.push(['Absender', party(1)], ['Empfänger', party(2)]);
     const dt = g(unb,3,0), tm = g(unb,3,1);
     if (dt){
@@ -1256,6 +1338,7 @@ function buildMscons(tab, sv){
   const cols = [
     {label:'Zählpunkt', text:s => s.loc.id, cls:'mono'},
     {label:'Lokationsart', text:s => s.loc.kind},
+    {label:'Zuordnung', text:s => relText(s.loc.id), cls:'mono'},
     {label:'Lieferanschrift', text:s => s.loc.addr},
     {label:'OBIS', text:s => s.obis, cls:'mono'},
     {label:'Art', text:s => s.kind},
@@ -1531,25 +1614,30 @@ function partnerUi(){
   document.getElementById('btnPartner').textContent = PARTNERS.size ? `Marktpartner (${nf0.format(PARTNERS.size)})` : 'Marktpartner laden';
 }
 function partnerStore(){
-  try { if (PARTNERS.size) localStorage.setItem(PKEY, JSON.stringify([...PARTNERS])); else localStorage.removeItem(PKEY); return true; }
+  try { if (PARTNERS.size) localStorage.setItem(PKEY, JSON.stringify([...PARTNERS].map(([k, v]) => [k, v.n, v.r]))); else localStorage.removeItem(PKEY); return true; }
   catch(e){ return false; }
 }
 try {
   const raw = localStorage.getItem(PKEY);
-  if (raw) for (const [k, v] of JSON.parse(raw)) if (/^\d{13}$/.test(k) && typeof v === 'string') PARTNERS.set(k, v.slice(0, 200));
+  if (raw) for (const [k, n, r] of JSON.parse(raw)) if (/^\d{13}$/.test(k) && typeof n === 'string') PARTNERS.set(k, {n:n.slice(0, 200), r:typeof r === 'string' ? r.slice(0, 60) : ''});
 } catch(e){}
 partnerUi();
 document.getElementById('btnPartner').onclick = () => document.getElementById('partnerInput').click();
 document.getElementById('partnerInput').onchange = async e => {
-  const f = e.target.files[0]; e.target.value = '';
-  if (!f) return;
-  if (f.size > 10 * 1048576){ toast('Die Liste ist größer als 10 MB.'); return; }
-  const m = parsePartnerList(decodeText(await f.arrayBuffer()));
-  if (!m.size){ toast('Keine Zeilen mit 13-stelliger Nummer und Name gefunden.'); return; }
-  PARTNERS.clear(); for (const [k, v] of m) PARTNERS.set(k, v);
+  const files = [...e.target.files]; e.target.value = '';
+  let added = 0, unresolved = 0;
+  for (const f of files){
+    try {
+      if (f.size > 20 * 1048576) throw new Error('größer als 20 MB');
+      const m = parsePartnerList(decodeText(await f.arrayBuffer()));
+      unresolved += m.unresolved || 0;
+      for (const [k, v] of m){ if (!PARTNERS.has(k)) added++; PARTNERS.set(k, v); }
+    } catch(err){ toast(`${f.name}: ${err.message}`); }
+  }
+  if (!added && !unresolved){ toast('Keine Marktpartner mit 13-stelliger Nummer und Name gefunden.'); return; }
   const kept = partnerStore();
   partnerUi(); refreshAll();
-  toast(`${nf0.format(m.size)} Marktpartner geladen${kept ? '' : ' (nur für diese Sitzung, Speichern nicht möglich)'}`);
+  toast(`${nf0.format(added)} neue Marktpartner, gesamt ${nf0.format(PARTNERS.size)}${unresolved ? `, ${unresolved} ohne Firmenname übersprungen` : ''}${kept ? '' : ' (nur für diese Sitzung, Speichern nicht möglich)'}`);
 };
 document.getElementById('btnPartnerDel').onclick = () => { PARTNERS.clear(); partnerStore(); partnerUi(); refreshAll(); toast('Marktpartner-Liste gelöscht'); };
 
@@ -1629,9 +1717,9 @@ function sampleFiles(){
   const ut = ['BGM+Z36+BSP-UTILTS-1', 'DTM+137:202610050630:203', `NAD+MS+${mp1}::293`, `NAD+MR+${mp2}::293`,
     'IDE+24+BSPV0001', 'LOC+172+51238696781', 'DTM+157:202610312300:203', 'STS+Z23+Z33', 'RFF+Z13:25001', 'CCI+Z30++Z07',
     'SEQ+Z36', 'RFF+Z23:1', 'CCI+Z27', 'CAV+Z84', 'CAV+Z85',
-    'SEQ+Z37+1', `RFF+Z19:${zp('M', 1)}`, 'CCI+++Z86', 'CAV+Z69', 'CCI+++Z87', 'CAV+Z71', 'CCI+++Z16', 'CAV+Z28:::1.02',
+    'SEQ+Z37+1', `RFF+Z19:${zp('S', 1)}`, 'CCI+++Z86', 'CAV+Z69', 'CCI+++Z87', 'CAV+Z71', 'CCI+++Z16', 'CAV+Z28:::1.02',
     'SEQ+Z37+1', 'RFF+Z23:2', 'CCI+++Z86', 'CAV+Z70',
-    'SEQ+Z37+2', `RFF+Z19:${zp('M', 2)}`, 'CCI+++Z86', 'CAV+Z69', 'CCI+++Z87', 'CAV+Z72',
+    'SEQ+Z37+2', `RFF+Z19:${zp('S', 2)}`, 'CCI+++Z86', 'CAV+Z69', 'CCI+++Z87', 'CAV+Z72',
     'SEQ+Z37+2', `RFF+Z19:${zp('M', 3)}`, 'CCI+++Z86', 'CAV+Z69', 'CCI+++Z87', 'CAV+Z72',
     'IDE+24+BSPV0002', 'LOC+172+51238696782', 'DTM+157:202610312300:203', 'STS+Z23+Z40', 'RFF+Z13:25001', 'CCI+Z30++Z07'];
   const ap = ['BGM+313+BSP-APERAK-1', 'DTM+137:202610050645?+00:303', 'RFF+ACE:BSP-MSCONS-1', 'DTM+171:202610050630?+00:303',
@@ -1646,6 +1734,7 @@ document.getElementById('btnSample').onclick = () => {
   let last = null;
   for (const [n, txt] of sampleFiles()) last = addTab(n, new Blob([txt]).size, txt);
   if (last) activate(state.tabs[state.tabs.length - 3] || last);
+  relRefresh();
 };
 </script>
 </body>

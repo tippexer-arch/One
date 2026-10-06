@@ -42,3 +42,10 @@ Geprüft wurde die hochgeladene Version (Einzeldatei-HTML, rein clientseitig). D
 - Wird die Datei in einer Umgebung eingebettet, die selbst Skripte einfügt (z. B. eine Artifact-Vorschau), kann die CSP diese blockieren. Dann die Datei lokal öffnen oder die CSP anpassen.
 - `frame-ancestors` lässt sich per `<meta>` nicht setzen. Beim Hosting auf einem Server den Header `Content-Security-Policy: frame-ancestors 'none'` und `X-Content-Type-Options: nosniff` setzen.
 - Der Viewer ändert die Quelldateien nie. Es ist ein reiner Leser.
+
+## Nachtrag: Marktpartner-Liste und Zuordnung
+
+- Die Marktpartner-Liste (Nummer, Firmenname, Marktrolle) wird auf Wunsch im Browser (`localStorage`) gespeichert. Sie enthält keine Messdaten. „Liste löschen“ entfernt sie.
+- Die Abfrage von `bdew-codes.de` läuft bewusst **nicht** im Viewer, sondern im Skript `tools/bdew-codes-export.py`. Der Viewer bleibt damit ohne Netzwerkzugriff (CSP `connect-src 'none'`), und die Seite erlaubt ohnehin keine Aufrufe aus fremden Seiten.
+- Die Schnittstelle liefert `ContactName` (Ansprechpersonen, personenbezogen). Skript und Viewer lesen dieses Feld nie und speichern es nicht.
+- Die MaLo/MeLo-Zuordnung entsteht nur im Arbeitsspeicher aus den gerade geöffneten UTILMD-/UTILTS-Dateien und verschwindet beim Schließen.
