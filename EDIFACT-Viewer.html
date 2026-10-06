@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>EDIFACT-Viewer</title>
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-epA0Rf/gtyXHN9fNC2bOVhoYoJ8cViFx+sXkpKGESIc='; style-src-elem 'sha256-AqvXT2gXVt0faCn7QgWDs8mns8NID78YyQ0DUUCXPuw='; style-src-attr 'unsafe-inline'; img-src data: blob:; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-EGmx0fOKDzu2KAyFSfpAHWjS7B89K3iEzN+NQUr5Tcs='; style-src-elem 'sha256-AqvXT2gXVt0faCn7QgWDs8mns8NID78YyQ0DUUCXPuw='; style-src-attr 'unsafe-inline'; img-src data: blob:; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="color-scheme" content="light dark">
 <style>
@@ -193,6 +193,9 @@ table.grid{ border-collapse:separate; border-spacing:0; width:max-content; min-w
     <button type="button" data-tz="UTC" aria-pressed="true">UTC</button>
     <button type="button" data-tz="Europe/Berlin" aria-pressed="false">Deutsche Zeit</button>
   </div>
+  <button type="button" class="btn" id="btnPartner" title="Liste mit Marktpartner-Nummern und Namen laden (CSV, Semikolon oder Tab getrennt)">Marktpartner laden</button>
+  <button type="button" class="btn" id="btnPartnerDel" title="Geladene Marktpartner-Liste löschen" hidden>Liste löschen</button>
+  <input type="file" id="partnerInput" accept=".csv,.txt,.tsv,text/plain,text/csv" hidden>
   <button type="button" class="btn" id="btnCloseAll" title="Alle Dateien schließen und Daten aus dem Speicher entfernen" hidden>Alle schließen</button>
   <button type="button" class="btn primary" id="btnOpen">Dateien öffnen</button>
   <input type="file" id="fileInput" multiple hidden>
@@ -203,7 +206,7 @@ table.grid{ border-collapse:separate; border-spacing:0; width:max-content; min-w
     <div class="empty-box">
       <div class="sep" aria-hidden="true">+ : '</div>
       <h2>EDIFACT-Dateien hier ablegen</h2>
-      <p>MSCONS, UTILMD, UTILTS, APERAK, CONTRL und andere Nachrichtentypen. Mehrere Dateien gleichzeitig sind möglich, jede Datei bekommt einen eigenen Tab. Die Dateien werden ausschließlich lokal in diesem Browser verarbeitet. Das Programm lädt nichts nach, sendet nichts, speichert nichts dauerhaft (kein Cookie, kein localStorage) und die Inhalte verschwinden beim Schließen der Datei oder des Tabs.</p>
+      <p>MSCONS, UTILMD, UTILTS, APERAK, CONTRL und andere Nachrichtentypen. Mehrere Dateien gleichzeitig sind möglich, jede Datei bekommt einen eigenen Tab. Die Dateien werden ausschließlich lokal in diesem Browser verarbeitet. Das Programm lädt nichts nach, sendet nichts, speichert keine Dateiinhalte (nur eine optional geladene Marktpartner-Liste bleibt bis zum Löschen im Browser) und die Inhalte verschwinden beim Schließen der Datei oder des Tabs.</p>
       <div class="actions">
         <button type="button" class="btn primary" id="btnOpen2">Dateien auswählen</button>
         <button type="button" class="btn" id="btnSample">Beispieldateien öffnen</button>
@@ -453,16 +456,42 @@ function describeSeg(s){
   return qt ? `${name} (${qt})` : name;
 }
 
+/* Marktpartner: Nummer -> Klarname. Es ist keine Liste eingebaut, sie wird aus einer eigenen Datei geladen. */
+const PARTNERS = new Map();
+function partnerName(id){ return PARTNERS.get(String(id || '').trim()) || ''; }
+function pl(id){ const n = partnerName(id); return n ? `${id} ${n}` : (id || ''); }
+function parsePartnerList(text){
+  const out = new Map();
+  for (const line of text.replace(/^\uFEFF/, '').split(/\r?\n/)){
+    const f = line.split(/[;\t,]/).map(x => x.trim().replace(/^"|"$/g, '').trim());
+    const i = f.findIndex(x => /^\d{13}$/.test(x));
+    if (i < 0) continue;
+    const name = f.slice(i + 1).find(x => x && !/^\d+$/.test(x)) || f.slice(0, i).reverse().find(x => x && !/^\d+$/.test(x));
+    if (name && out.size < 200000) out.set(f[i], name.slice(0, 200));
+  }
+  return out;
+}
+
+/* Lokationsart: zuerst am Format der Kennung, sonst am Qualifier im LOC-Segment */
+function locKind(id, q){
+  if (/^\d{11}$/.test(id)) return 'Marktlokation (MaLo)';
+  if (/^DE[0-9A-Z]{31}$/.test(id)) return 'Messlokation (MeLo)';
+  if (/^[0-9A-Z]{25}$/.test(id) && q === 'Z21') return 'Tranche';
+  return ({Z16:'Marktlokation (MaLo)', Z17:'Messlokation (MeLo)', Z15:'MaBiS-Zählpunkt', Z18:'Netzlokation', Z19:'Steuerbare Ressource', Z20:'Technische Ressource', Z21:'Tranche'})[q] || '';
+}
+
 /* ------------------------------------------------------------------ *
  *  MSCONS: Zählpunkte, OBIS-Kennzahlen und Werte
  * ------------------------------------------------------------------ */
 function analyzeMscons(msg){
   const locs = [];
   let loc = null, ser = null, val = null;
-  const newLoc = (id, q) => { loc = {id, q, from:null, to:null, series:[], msg}; locs.push(loc); ser = null; val = null; };
+  let addr = '';
+  const newLoc = (id, q) => { loc = {id, q, kind:locKind(id, q), addr, from:null, to:null, series:[], msg}; locs.push(loc); ser = null; val = null; addr = ''; };
   const newSer = () => { if (!loc) newLoc('(ohne Zählpunkt)', ''); ser = {obis:'', unit:'', values:[], loc, msg}; loc.series.push(ser); val = null; };
   for (const s of msg.segs){
     switch (s.tag){
+      case 'NAD': if (g(s,0) === 'DP') addr = s.els.slice(1).map(e => e.filter(Boolean).join(' ')).filter(Boolean).join(', '); break;
       case 'LOC': newLoc(g(s,1), g(s,0)); break;
       case 'LIN': newSer(); break;
       case 'PIA': if (ser && (!ser.obis || g(s,0) === '5')) ser.obis = g(s,1); break;
@@ -1142,7 +1171,7 @@ function renderProps(tab){
   if (tab.hash) rows.push(['SHA-256', `<span class="mono" style="word-break:break-all">${esc(tab.hash)}</span>`]);
   if (unb){
     rows.push(['Zeichensatz', `${esc(g(unb,0,0))}${g(unb,0,1) ? ' (Syntaxversion ' + esc(g(unb,0,1)) + ')' : ''}`]);
-    const party = i => `<span class="mono">${esc(g(unb,i,0))}</span>${g(unb,i,1) ? ` <span class="lbl">${esc(PARTNER_QUAL[g(unb,i,1)] || g(unb,i,1))}</span>` : ''}`;
+    const party = i => `<span class="mono">${esc(g(unb,i,0))}</span>${g(unb,i,1) ? ` <span class="lbl">${esc(PARTNER_QUAL[g(unb,i,1)] || g(unb,i,1))}</span>` : ''}${partnerName(g(unb,i,0)) ? `<br><b>${esc(partnerName(g(unb,i,0)))}</b>` : ''}`;
     rows.push(['Absender', party(1)], ['Empfänger', party(2)]);
     const dt = g(unb,3,0), tm = g(unb,3,1);
     if (dt){
@@ -1226,6 +1255,8 @@ function buildMscons(tab, sv){
     </div>`;
   const cols = [
     {label:'Zählpunkt', text:s => s.loc.id, cls:'mono'},
+    {label:'Lokationsart', text:s => s.loc.kind},
+    {label:'Lieferanschrift', text:s => s.loc.addr},
     {label:'OBIS', text:s => s.obis, cls:'mono'},
     {label:'Art', text:s => s.kind},
     {label:'von', text:s => fd(s.from), sort:s => s.from ? +s.from : 0},
@@ -1238,8 +1269,8 @@ function buildMscons(tab, sv){
     {label:'Maximum', text:s => s.max ? fn(s.max.v) : '', sort:s => s.max ? s.max.v : 0, csv:s => s.max ? csvNum(s.max.v) : '', num:true},
     {label:'Maximum am', text:s => s.max ? fd(s.max.t) : '', sort:s => s.max && s.max.t ? +s.max.t : 0},
     {label:'Ersatzwerte', text:s => s.subst ? nf0.format(s.subst) : '', sort:s => s.subst, num:true},
-    {label:'Absender', text:s => s.msg.header.ms || '', cls:'mono'},
-    {label:'Empfänger', text:s => s.msg.header.mr || '', cls:'mono'},
+    {label:'Absender', text:s => pl(s.msg.header.ms), cls:'mono'},
+    {label:'Empfänger', text:s => pl(s.msg.header.mr), cls:'mono'},
     {label:'Nachricht', text:s => s.msg.ref, cls:'mono'}
   ];
   const cnt = sv.querySelector('.cnt');
@@ -1377,7 +1408,7 @@ function buildAperak(tab, sv){
     h += `<h3>APERAK ${esc(m.header.docno || m.ref)}</h3><dl class="kv">`;
     h += `<dt>Dokumentart</dt><dd class="mono">${esc(m.header.bgm || '')}</dd>`;
     if (m.header.date) h += `<dt>Nachrichtendatum</dt><dd>${esc(fdtm(m.header.date))}</dd>`;
-    h += `<dt>Absender</dt><dd class="mono">${esc(m.header.ms || '')}</dd><dt>Empfänger</dt><dd class="mono">${esc(m.header.mr || '')}</dd>`;
+    h += `<dt>Absender</dt><dd class="mono">${esc(m.header.ms || '')}</dd>${partnerName(m.header.ms) ? `<dt></dt><dd>${esc(partnerName(m.header.ms))}</dd>` : ''}<dt>Empfänger</dt><dd class="mono">${esc(m.header.mr || '')}</dd>${partnerName(m.header.mr) ? `<dt></dt><dd>${esc(partnerName(m.header.mr))}</dd>` : ''}`;
     a.refs.forEach(x => { h += `<dt>${esc(QUAL.RFF[x.q] || 'Referenz ' + x.q)}</dt><dd class="mono">${esc(x.v)}</dd>`; });
     a.dtms.filter(d => d.q !== '137').forEach(d => { h += `<dt>${esc(QUAL.DTM[d.q] || 'Datum ' + d.q)}</dt><dd>${esc(fdtm(d))}</dd>`; });
     a.texts.forEach(t => { h += `<dt>Hinweis</dt><dd>${esc(t)}</dd>`; });
@@ -1480,6 +1511,9 @@ document.getElementById('tzToggle').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b || state.tz === b.dataset.tz) return;
   state.tz = b.dataset.tz;
   b.parentNode.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+  refreshAll();
+});
+function refreshAll(){
   for (const t of state.tabs){
     if (t.err) continue;
     renderProps(t); renderTree(t);
@@ -1488,7 +1522,36 @@ document.getElementById('tzToggle').addEventListener('click', e => {
     const ap = t.el.querySelector('.sv[data-v="aperak"]');
     if (ap && ap.dataset.built){ ap.innerHTML = ''; ap.classList.remove('single'); buildAperak(t, ap); }
   }
-});
+}
+
+/* Marktpartner-Liste: bleibt im Browser (localStorage) erhalten, bis sie gelöscht wird. Enthält nur Firmennamen, keine Messdaten. */
+const PKEY = 'edifact-viewer-partner-v1';
+function partnerUi(){
+  document.getElementById('btnPartnerDel').hidden = !PARTNERS.size;
+  document.getElementById('btnPartner').textContent = PARTNERS.size ? `Marktpartner (${nf0.format(PARTNERS.size)})` : 'Marktpartner laden';
+}
+function partnerStore(){
+  try { if (PARTNERS.size) localStorage.setItem(PKEY, JSON.stringify([...PARTNERS])); else localStorage.removeItem(PKEY); return true; }
+  catch(e){ return false; }
+}
+try {
+  const raw = localStorage.getItem(PKEY);
+  if (raw) for (const [k, v] of JSON.parse(raw)) if (/^\d{13}$/.test(k) && typeof v === 'string') PARTNERS.set(k, v.slice(0, 200));
+} catch(e){}
+partnerUi();
+document.getElementById('btnPartner').onclick = () => document.getElementById('partnerInput').click();
+document.getElementById('partnerInput').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = '';
+  if (!f) return;
+  if (f.size > 10 * 1048576){ toast('Die Liste ist größer als 10 MB.'); return; }
+  const m = parsePartnerList(decodeText(await f.arrayBuffer()));
+  if (!m.size){ toast('Keine Zeilen mit 13-stelliger Nummer und Name gefunden.'); return; }
+  PARTNERS.clear(); for (const [k, v] of m) PARTNERS.set(k, v);
+  const kept = partnerStore();
+  partnerUi(); refreshAll();
+  toast(`${nf0.format(m.size)} Marktpartner geladen${kept ? '' : ' (nur für diese Sitzung, Speichern nicht möglich)'}`);
+};
+document.getElementById('btnPartnerDel').onclick = () => { PARTNERS.clear(); partnerStore(); partnerUi(); refreshAll(); toast('Marktpartner-Liste gelöscht'); };
 
 /* ------------------------------------------------------------------ *
  *  Drag & Drop und Dateiauswahl
