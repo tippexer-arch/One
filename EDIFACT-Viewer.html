@@ -1,0 +1,1587 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>EDIFACT-Viewer</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-D5MQeQix79l4nayxN/8JaKNRAIMOCrDRf6Soq7KbvoM='; style-src-elem 'sha256-AqvXT2gXVt0faCn7QgWDs8mns8NID78YyQ0DUUCXPuw='; style-src-attr 'unsafe-inline'; img-src data: blob:; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light dark">
+<style>
+:root{
+  --bg:#E4E8EC; --panel:#FFFFFF; --panel2:#F2F4F6; --ink:#1C2730; --muted:#5B6975;
+  --line:#CBD3DA; --line-soft:#E3E8EC; --accent:#1F5F8B; --accent-ink:#FFFFFF; --sel:#D8E8F4;
+  --paper:#F7F8E7; --grid:#D6DBAE; --grid-minor:#EBEDD3; --trace:#2B8A3E; --warn:#C2410C; --bad:#B42318; --ok:#2B7A3B;
+  --font:"IBM Plex Sans","Segoe UI",system-ui,-apple-system,sans-serif;
+  --mono:"IBM Plex Mono",Consolas,"Cascadia Mono","Courier New",monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#141A20; --panel:#1C242C; --panel2:#222B34; --ink:#DCE3E9; --muted:#93A1AD;
+    --line:#33404B; --line-soft:#28323C; --accent:#62A8DA; --accent-ink:#0D1922; --sel:#21384B;
+    --paper:#1A2118; --grid:#35412F; --grid-minor:#232C20; --trace:#78D383; --warn:#F59E5B; --bad:#F87171; --ok:#78D383;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#141A20; --panel:#1C242C; --panel2:#222B34; --ink:#DCE3E9; --muted:#93A1AD;
+  --line:#33404B; --line-soft:#28323C; --accent:#62A8DA; --accent-ink:#0D1922; --sel:#21384B;
+  --paper:#1A2118; --grid:#35412F; --grid-minor:#232C20; --trace:#78D383; --warn:#F59E5B; --bad:#F87171; --ok:#78D383;
+  color-scheme: dark;
+}
+:root{ box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px); }
+*,*::before,*::after{ box-sizing:inherit; }
+html{ height:100%; scroll-padding-top:env(safe-area-inset-top,0px); }
+body{ height:100%; margin:0; background:var(--bg); color:var(--ink); font:13px/1.45 var(--font);
+  display:grid; grid-template-rows:auto auto 1fr; overflow:hidden; }
+button,input{ font:inherit; color:inherit; }
+:focus-visible{ outline:2px solid var(--accent); outline-offset:1px; }
+
+/* Kopfzeile */
+.bar{ display:flex; align-items:center; gap:16px; padding:8px 14px; background:var(--panel); border-bottom:1px solid var(--line); }
+.bar h1{ margin:0; font-size:15px; font-weight:600; letter-spacing:.01em; }
+.bar h1 span{ font-family:var(--mono); font-weight:500; color:var(--accent); margin-right:6px; }
+.bar .spacer{ flex:1; }
+.btn{ border:1px solid var(--line); background:var(--panel2); padding:5px 12px; border-radius:4px; cursor:pointer; white-space:nowrap; }
+.btn:hover{ border-color:var(--accent); }
+.btn.primary{ background:var(--accent); color:var(--accent-ink); border-color:var(--accent); font-weight:500; }
+.btn.small{ padding:3px 9px; font-size:12px; }
+.toggle{ display:inline-flex; border:1px solid var(--line); border-radius:4px; overflow:hidden; }
+.toggle button{ border:0; background:var(--panel2); padding:4px 10px; cursor:pointer; font-size:12px; }
+.toggle button + button{ border-left:1px solid var(--line); }
+.toggle button[aria-pressed="true"]{ background:var(--accent); color:var(--accent-ink); }
+.lbl{ color:var(--muted); font-size:12px; }
+
+/* Datei-Tabs */
+.tabs{ display:flex; gap:2px; padding:6px 10px 0; background:var(--bg); overflow-x:auto; border-bottom:1px solid var(--line); min-height:8px; }
+.tabs:empty{ display:none; }
+.ftab{ display:flex; align-items:center; gap:8px; max-width:340px; padding:6px 8px 6px 12px; border:1px solid var(--line); border-bottom:0;
+  border-radius:5px 5px 0 0; background:var(--panel2); cursor:pointer; white-space:nowrap; color:var(--muted); }
+.ftab[aria-selected="true"]{ background:var(--panel); color:var(--ink); position:relative; top:1px; }
+.ftab .type{ font-family:var(--mono); font-size:11px; font-weight:500; color:var(--accent); }
+.ftab .name{ overflow:hidden; text-overflow:ellipsis; }
+.ftab .x{ border:0; background:none; width:20px; height:20px; border-radius:3px; cursor:pointer; color:var(--muted); line-height:1; font-size:15px; }
+.ftab .x:hover{ background:var(--line-soft); color:var(--ink); }
+.ftab.err .type{ color:var(--bad); }
+
+main{ position:relative; min-height:0; overflow:hidden; }
+
+/* Leerer Zustand */
+.empty{ height:100%; display:grid; place-items:center; padding:24px; }
+.empty-box{ width:min(640px,100%); border:2px dashed var(--line); border-radius:10px; padding:44px 36px; text-align:center; background:var(--panel); }
+.empty-box h2{ margin:0 0 8px; font-size:22px; font-weight:600; }
+.empty-box p{ margin:0 auto 22px; max-width:56ch; color:var(--muted); }
+.empty-box .sep{ font-family:var(--mono); font-size:40px; color:var(--accent); letter-spacing:.3em; margin-bottom:12px; }
+.empty-box .actions{ display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+
+.drop-overlay{ position:fixed; inset:0; display:none; place-items:center; background:color-mix(in srgb, var(--accent) 18%, transparent); z-index:50; pointer-events:none; }
+.drop-overlay div{ background:var(--panel); border:2px dashed var(--accent); border-radius:10px; padding:28px 40px; font-size:17px; font-weight:500; }
+body.dragging .drop-overlay{ display:grid; }
+
+/* Dateiansicht */
+.fv{ position:absolute; inset:0; display:grid; grid-template-columns:var(--left,330px) 5px minmax(0,1fr); background:var(--panel); }
+.fv[hidden]{ display:none; }
+.side{ display:grid; grid-template-rows:auto minmax(0,1fr); min-height:0; border-right:1px solid var(--line); }
+.pane-h{ margin:0; padding:6px 10px; font-size:12px; font-weight:600; color:var(--muted); background:var(--panel2); border-bottom:1px solid var(--line); }
+.props{ max-height:46vh; overflow:auto; border-bottom:1px solid var(--line); }
+.props table{ width:100%; border-collapse:collapse; }
+.props td{ padding:3px 10px; border-bottom:1px solid var(--line-soft); vertical-align:top; }
+.props td:first-child{ color:var(--muted); width:42%; white-space:nowrap; }
+.props td:last-child{ overflow-wrap:anywhere; }
+.props .mono{ font-family:var(--mono); font-size:12px; }
+.ok{ color:var(--ok); } .bad{ color:var(--bad); } .warn{ color:var(--warn); }
+.tree-pane{ display:grid; grid-template-rows:auto minmax(0,1fr); min-height:0; }
+.tree{ overflow:auto; padding:4px 0 10px; font-size:12.5px; }
+.tree details{ margin-left:12px; }
+.tree > details{ margin-left:2px; }
+.tree summary{ cursor:pointer; padding:2px 4px; list-style-position:outside; white-space:nowrap; }
+.tree .leaf{ margin-left:26px; padding:2px 4px; cursor:pointer; white-space:nowrap; border-radius:3px; }
+.tree summary:hover,.tree .leaf:hover{ background:var(--line-soft); }
+.tree .leaf.active{ background:var(--sel); }
+.tree .k{ font-family:var(--mono); font-size:11.5px; }
+.tree .m{ color:var(--muted); }
+
+.split-v{ cursor:col-resize; background:var(--panel2); border-right:1px solid var(--line); touch-action:none; }
+.split-h{ cursor:row-resize; background:var(--panel2); border-top:1px solid var(--line); border-bottom:1px solid var(--line); height:6px; touch-action:none; }
+.split-v:hover,.split-h:hover{ background:var(--sel); }
+
+.mainp{ display:grid; grid-template-rows:auto minmax(0,1fr); min-width:0; min-height:0; }
+.subtabs{ display:flex; gap:0; background:var(--panel2); border-bottom:1px solid var(--line); padding:0 6px; overflow-x:auto; }
+.subtabs button{ border:0; background:none; padding:7px 14px; cursor:pointer; color:var(--muted); border-bottom:2px solid transparent; white-space:nowrap; }
+.subtabs button[aria-selected="true"]{ color:var(--ink); border-bottom-color:var(--accent); font-weight:500; }
+.sv{ min-height:0; min-width:0; display:none; }
+.sv.on{ display:grid; }
+.sv.split{ grid-template-rows:var(--top,40%) 6px minmax(0,1fr); }
+.sv.single{ grid-template-rows:auto minmax(0,1fr); }
+.blk{ display:grid; grid-template-rows:auto minmax(0,1fr); min-height:0; min-width:0; }
+.toolbar{ display:flex; align-items:center; gap:8px; padding:5px 8px; border-bottom:1px solid var(--line-soft); flex-wrap:wrap; }
+.toolbar .spacer{ flex:1; }
+.toolbar input[type=search]{ border:1px solid var(--line); background:var(--panel); border-radius:4px; padding:3px 8px; width:min(280px,100%); }
+.toolbar .title{ font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:70%; }
+
+/* Tabellen */
+.tw{ overflow:auto; min-height:0; }
+.tw:focus-visible{ outline-offset:-2px; }
+table.grid{ border-collapse:separate; border-spacing:0; width:max-content; min-width:100%; font-variant-numeric:tabular-nums; }
+.grid th{ position:sticky; top:0; z-index:1; background:var(--panel2); text-align:left; font-weight:500; color:var(--muted); padding:4px 10px; border-bottom:1px solid var(--line); border-right:1px solid var(--line-soft); cursor:pointer; user-select:none; white-space:nowrap; }
+.grid th.n{ text-align:right; }
+.grid th[aria-sort="ascending"]::after{ content:" ▲"; font-size:9px; }
+.grid th[aria-sort="descending"]::after{ content:" ▼"; font-size:9px; }
+.grid td{ padding:3px 10px; border-bottom:1px solid var(--line-soft); border-right:1px solid var(--line-soft); white-space:nowrap; }
+.grid td.n{ text-align:right; }
+.grid td.mono{ font-family:var(--mono); font-size:12px; }
+.grid td.wrap{ white-space:normal; min-width:260px; max-width:640px; }
+.grid tbody tr{ cursor:default; }
+.grid tbody tr:hover td{ background:var(--line-soft); }
+.grid tbody tr.sel td{ background:var(--sel); }
+.grid tr.sub td{ color:var(--warn); }
+.more{ padding:8px 10px; color:var(--muted); }
+
+/* Diagramm */
+.chart-blk{ display:grid; grid-template-rows:auto minmax(0,1fr); min-height:0; }
+.chart-wrap{ position:relative; min-height:0; }
+.chart-wrap canvas{ position:absolute; inset:0; width:100%; height:100%; cursor:crosshair; touch-action:none; }
+.chart-tip{ position:fixed; z-index:60; pointer-events:none; background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:6px 9px; font-size:12px; box-shadow:0 2px 8px rgb(0 0 0 / .15); display:none; font-variant-numeric:tabular-nums; }
+.chart-tip b{ font-weight:600; }
+.legend{ display:flex; gap:12px; align-items:center; font-size:12px; color:var(--muted); }
+.legend i{ display:inline-block; width:14px; height:2px; vertical-align:middle; margin-right:4px; }
+
+/* Detailbereich */
+.detail{ overflow:auto; min-height:0; }
+.detail-inner{ padding:10px 14px 18px; }
+.detail h3{ font-size:13px; margin:14px 0 6px; font-weight:600; }
+.detail h3:first-child{ margin-top:2px; }
+.formula{ border:1px solid var(--line); border-radius:6px; padding:12px 14px; background:var(--panel2); max-width:980px; }
+.formula .eq{ font-family:var(--mono); font-size:14px; padding:6px 0 10px; word-break:break-word; }
+.formula .eq b{ color:var(--accent); font-weight:500; }
+.kv{ display:grid; grid-template-columns:max-content 1fr; gap:3px 16px; margin:0 0 6px; }
+.kv dt{ color:var(--muted); } .kv dd{ margin:0; }
+.chip{ font-family:var(--mono); font-size:12px; background:var(--panel); border:1px solid var(--line); border-radius:3px; padding:0 5px; }
+
+/* EDI-Text */
+.edi{ margin:0; padding:8px 0; font:12.5px/1.6 var(--mono); overflow:auto; min-height:0; white-space:pre; tab-size:4; }
+.edi .l{ display:block; padding:0 12px 0 0; }
+.edi .l:hover{ background:var(--line-soft); }
+.edi .ln{ display:inline-block; width:6ch; text-align:right; padding-right:1.5ch; color:var(--muted); user-select:none; opacity:.7; }
+.edi .t{ color:var(--accent); font-weight:500; }
+.edi .s{ color:var(--muted); }
+.edi mark{ background:#F7D154; color:#1C2730; border-radius:2px; }
+.edi mark.cur{ background:#F59E0B; }
+
+.errbox{ padding:24px; max-width:70ch; }
+.errbox h2{ margin:0 0 8px; font-size:16px; color:var(--bad); }
+
+.toast{ position:fixed; left:50%; bottom:calc(18px + env(safe-area-inset-bottom,0px)); transform:translateX(-50%); background:var(--ink); color:var(--panel); padding:8px 14px; border-radius:5px; font-size:13px; opacity:0; transition:opacity .2s; pointer-events:none; z-index:70; }
+.toast.on{ opacity:1; }
+
+@media (max-width:760px){
+  .fv{ grid-template-columns:1fr; grid-template-rows:auto minmax(0,1fr); overflow:auto; }
+  .side{ max-height:34vh; border-right:0; border-bottom:1px solid var(--line); }
+  .split-v{ display:none; }
+  .bar{ flex-wrap:wrap; }
+}
+@media (prefers-reduced-motion: reduce){ .toast{ transition:none; } }
+</style>
+</head>
+<body>
+<header class="bar">
+  <h1><span>+:'</span>EDIFACT-Viewer</h1>
+  <div class="spacer"></div>
+  <span class="lbl">Zeitangaben</span>
+  <div class="toggle" id="tzToggle">
+    <button type="button" data-tz="UTC" aria-pressed="true">UTC</button>
+    <button type="button" data-tz="Europe/Berlin" aria-pressed="false">Deutsche Zeit</button>
+  </div>
+  <button type="button" class="btn" id="btnCloseAll" title="Alle Dateien schließen und Daten aus dem Speicher entfernen" hidden>Alle schließen</button>
+  <button type="button" class="btn primary" id="btnOpen">Dateien öffnen</button>
+  <input type="file" id="fileInput" multiple hidden>
+</header>
+<nav class="tabs" id="tabs" role="tablist" aria-label="Geöffnete Dateien"></nav>
+<main id="main">
+  <section class="empty" id="empty">
+    <div class="empty-box">
+      <div class="sep" aria-hidden="true">+ : '</div>
+      <h2>EDIFACT-Dateien hier ablegen</h2>
+      <p>MSCONS, UTILMD, UTILTS, APERAK, CONTRL und andere Nachrichtentypen. Mehrere Dateien gleichzeitig sind möglich, jede Datei bekommt einen eigenen Tab. Die Dateien werden ausschließlich lokal in diesem Browser verarbeitet. Das Programm lädt nichts nach, sendet nichts, speichert nichts dauerhaft (kein Cookie, kein localStorage) und die Inhalte verschwinden beim Schließen der Datei oder des Tabs.</p>
+      <div class="actions">
+        <button type="button" class="btn primary" id="btnOpen2">Dateien auswählen</button>
+        <button type="button" class="btn" id="btnSample">Beispieldateien öffnen</button>
+      </div>
+    </div>
+  </section>
+</main>
+<div class="drop-overlay" aria-hidden="true"><div>Loslassen, um die Dateien zu öffnen</div></div>
+<div class="chart-tip" id="tip"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+'use strict';
+// ==PARSER START==
+/* ------------------------------------------------------------------ *
+ *  Stammdaten / Beschreibungen
+ * ------------------------------------------------------------------ */
+const SEG_NAMES = {
+  UNA:'Trennzeichen-Vorgabe', UNB:'Nutzdaten-Kopfsegment', UNZ:'Nutzdaten-Endesegment', UNG:'Gruppen-Kopf', UNE:'Gruppen-Ende',
+  UNH:'Nachrichten-Kopfsegment', UNT:'Nachrichten-Endesegment', BGM:'Beginn der Nachricht', DTM:'Datum/Uhrzeit',
+  RFF:'Referenz', NAD:'Name und Adresse', CTA:'Ansprechpartner', COM:'Kommunikationsverbindung', UNS:'Abschnitts-Trennung',
+  LOC:'Ortsangabe', LIN:'Position', PIA:'Produktidentifikation', QTY:'Menge', STS:'Status', IDE:'Identifikation',
+  SEQ:'Reihenfolge', CCI:'Merkmal', CAV:'Merkmalswert', ERC:'Fehlerangabe', FTX:'Freitext', MOA:'Geldbetrag',
+  TAX:'Steuerangaben', CUX:'Währung', PRI:'Preis', ALC:'Zu- oder Abschlag', PCD:'Prozentangabe', IMD:'Beschreibung',
+  AGR:'Vereinbarung', PAT:'Zahlungsbedingung', DOC:'Dokument', MEA:'Messangabe', CNT:'Kontrollsumme', TOD:'Lieferbedingung',
+  UCI:'Antwort auf Übertragungsdatei', UCM:'Antwort auf Nachricht', UCS:'Segmentfehler', UCD:'Datenelementfehler',
+  UCF:'Antwort auf Gruppe', EMP:'Beschäftigung', GIS:'Verarbeitungsindikator', DGS:'Gefahrgut', PRC:'Prozess'
+};
+const QUAL = {
+  NAD:{MS:'Absender', MR:'Empfänger', DP:'Lieferanschrift'},
+  DTM:{'137':'Nachrichtendatum','163':'Beginn Zeitraum','164':'Ende Zeitraum','7':'Nutzungszeitpunkt','9':'Ablesedatum',
+       '157':'Gültig ab','92':'Beginn','93':'Ende','171':'Referenzdatum'},
+  LOC:{'172':'Meldepunkt', Z15:'MaBiS-Zählpunkt', Z16:'Marktlokation', Z17:'Messlokation', Z18:'Netzlokation',
+       Z19:'Steuerbare Ressource', Z20:'Technische Ressource', Z21:'Tranche'},
+  RFF:{Z13:'Prüfidentifikator', TN:'Vorgangsnummer', ACE:'Referenz Dokument', ACW:'Referenz Nachricht', MG:'Gerätenummer',
+       Z19:'Messlokation', Z23:'Rechenschritt'},
+  QTY:{'220':'Wahrer Wert','67':'Ersatzwert','201':'Vorschlagswert','20':'Nicht verwendbarer Wert','187':'Prognosewert'},
+  STS:{'7':'Transaktionsgrund', E01:'Status der Antwort', Z23:'Status der Berechnungsformel'},
+  SEQ:{Z36:'Energiemenge der Marktlokation', Z37:'Bestandteil des Rechenschritts'},
+  IDE:{'24':'Vorgang'},
+  BGM:{Z36:'Berechnungsformel'},
+  CCI:{Z30:'Lieferrichtung', Z27:'Verwendungszweck', Z86:'Mathematischer Operator', Z87:'Energieflussrichtung',
+       Z16:'Verlustfaktor Trafo', ZB2:'Verlustfaktor Leitung'}
+};
+/* Codes aus dem UTILTS-AHB 1.0b (Berechnungsformel) */
+const UTILTS = {
+  status:{Z33:'Berechnungsformel angefügt', Z34:'Berechnungsformel muss beim Absender angefragt werden',
+          Z40:'Berechnungsformel besitzt keine Rechenoperation', Z41:'Berechnungsformel nicht erforderlich'},
+  richtung:{Z06:'Erzeugung', Z07:'Verbrauch'},
+  zweck:{Z84:'Netznutzungsabrechnung', Z85:'Bilanzkreisabrechnung', Z86:'Mehrmindermengenabrechnung',
+         Z92:'Übermittlung an das HKNR', Z47:'Endkundenabrechnung'},
+  op:{Z69:'Addition', Z70:'Subtraktion', Z80:'Divisor', Z81:'Dividend', Z82:'Faktor', Z83:'Positivwert'},
+  fluss:{Z71:'Verbrauch', Z72:'Erzeugung'}
+};
+/* Prüfidentifikatoren – bei Bedarf ergänzen */
+const PRUEFI = {
+  '25001':'Berechnungsformel', '25002':'Ablehnung Berechnungsformel', '25003':'Zustimmung Berechnungsformel'
+};
+/* Codequalifizierer der Marktpartner-ID im UNB */
+const PARTNER_QUAL = {'14':'GS1', '500':'BDEW', '502':'DVGW'};
+/* CONTRL (ISO 9735) */
+const CONTRL_ACTION = {'4':'abgelehnt','7':'bestätigt','8':'empfangen'};
+const CONTRL_ERR = {
+  '2':'Syntaxversion oder -ebene nicht unterstützt','7':'Empfänger ist nicht der tatsächliche Empfänger',
+  '12':'Ungültiger Wert','13':'Fehlt','14':'Wert an dieser Position nicht unterstützt','15':'An dieser Position nicht unterstützt',
+  '16':'Zu viele Bestandteile','17':'Keine Vereinbarung','18':'Nicht näher bezeichneter Fehler','19':'Ungültige Dezimalschreibweise',
+  '20':'Zeichen als Trennzeichen ungültig','21':'Ungültige Zeichen','22':'Ungültiges Service-Segment',
+  '23':'Absender der Übertragungsdatei unbekannt','24':'Zu alt','25':'Testkennzeichen nicht unterstützt',
+  '26':'Duplikat erkannt','28':'Referenzen stimmen nicht überein','29':'Kontrollzählung stimmt nicht',
+  '32':'Untere Ebene leer','35':'Zu viele Wiederholungen','36':'Zu viele Segmentgruppen-Wiederholungen',
+  '37':'Ungültiger Zeichentyp','39':'Datenelement zu lang','40':'Datenelement zu kurz'
+};
+
+/* Nachschlagetabellen ohne Prototyp: Schlüssel wie "constructor" oder "__proto__" aus einer
+   Datei liefern sonst Funktionen statt undefined. */
+(function nullProto(o){
+  if (!o || typeof o !== 'object') return;
+  for (const k of Object.keys(o)) nullProto(o[k]);
+  Object.setPrototypeOf(o, null);
+})({SEG_NAMES, QUAL, UTILTS, PRUEFI, PARTNER_QUAL, CONTRL_ACTION, CONTRL_ERR});
+
+const LIMITS = {file:50 * 1024 * 1024, files:25, tabs:40, textLines:20000, exprNodes:2000, exprDepth:40};
+
+/* ------------------------------------------------------------------ *
+ *  Lesen und Zerlegen
+ * ------------------------------------------------------------------ */
+function decodeText(buf){
+  const b = new Uint8Array(buf);
+  let high = false;
+  for (let i = 0; i < b.length; i++){ if (b[i] > 127){ high = true; break; } }
+  if (!high) return new TextDecoder('iso-8859-1').decode(b);
+  // Zeichensatz aus dem UNB lesen (UNOC = ISO 8859-1, UNOW/UNOY = UTF-8), sonst raten
+  const head = new TextDecoder('iso-8859-1').decode(b.subarray(0, 400));
+  const m = head.match(/UNB.UNO([A-Z])/);
+  const set = m ? m[1] : '';
+  if (set === 'C' || set === 'A' || set === 'B') return new TextDecoder('iso-8859-1').decode(b);
+  try { return new TextDecoder('utf-8', {fatal:true}).decode(b); } catch(e){}
+  return new TextDecoder('iso-8859-1').decode(b);
+}
+
+function parseEdifact(text){
+  text = text.replace(/^\uFEFF/, '');
+  const start = text.search(/UN[ABH]/);
+  if (start < 0) throw new Error('In der Datei wurde kein UNA-, UNB- oder UNH-Segment gefunden. Ist es eine EDIFACT-Datei?');
+  const d = {comp:':', elem:'+', dec:'.', rel:'?', term:"'", una:false};
+  const segs = [], warnings = [];
+  if (text.slice(0, start).trim()) warnings.push(`${start} Zeichen vor dem ersten Segment wurden ignoriert`);
+  let p = start;
+  if (text.startsWith('UNA', p)){
+    const u = text.slice(p + 3, p + 9);
+    const bad = c => !c || /[A-Za-z0-9\s\u0000-\u001f]/.test(c);
+    if (u.length < 6 || [u[0], u[1], u[2], u[3], u[5]].some(bad) || new Set([u[0], u[1], u[3], u[5]]).size < 4 || (u[2] !== '.' && u[2] !== ','))
+      throw new Error('Das UNA-Segment ist ungültig (Trennzeichen fehlen, sind doppelt oder nicht zulässig).');
+    d.comp = u[0]; d.elem = u[1]; d.dec = u[2]; d.rel = u[3]; d.term = u[5]; d.una = true;
+    segs.push({i:1, tag:'UNA', els:[], raw:'UNA' + u.slice(0, 5)});
+    p += 9;
+  }
+  let raw = '', els = [[]], cur = '';
+  const n = text.length;
+  let unterminated = false;
+  const finish = () => {
+    els[els.length-1].push(cur);
+    if (raw.trim()){
+      const tag = (els[0][0] || '').trim();
+      segs.push({i:segs.length+1, tag, els:els.slice(1), raw});
+    }
+    raw = ''; els = [[]]; cur = '';
+  };
+  for (let i = p; i < n; i++){
+    const ch = text[i];
+    if (ch === '\r' || (ch === '\n' && d.term !== '\n')) continue;
+    if (ch === d.rel && i + 1 < n){ const nx = text[i+1]; raw += ch + nx; cur += nx; i++; continue; }
+    if (ch === d.term){ finish(); continue; }
+    if (raw === '' && (ch === ' ' || ch === '\t')) continue;
+    raw += ch;
+    if (ch === d.elem){ els[els.length-1].push(cur); els.push([]); cur = ''; }
+    else if (ch === d.comp){ els[els.length-1].push(cur); cur = ''; }
+    else cur += ch;
+  }
+  if (raw.trim()){ unterminated = true; finish(); }
+  if (unterminated) warnings.push('Das letzte Segment ist nicht mit dem Segmentendezeichen abgeschlossen');
+  return {delims:d, segs, warnings};
+}
+
+const g = (s, e, c = 0) => (s && s.els[e] && s.els[e][c]) || '';
+/* Strenge Zahlenerkennung: nur Ziffern, optionales Vorzeichen und genau das im UNA vereinbarte Dezimalzeichen.
+   Alles andere ergibt NaN statt eines still abgeschnittenen Wertes (parseFloat("1,5abc") wäre 1). */
+let DEC = '.';
+function num(s){
+  if (s == null || s === '') return NaN;
+  const t = String(s).trim();
+  const re = DEC === ',' ? /^[+-]?(\d+(,\d*)?|,\d+)$/ : /^[+-]?(\d+(\.\d*)?|\.\d+)$/;
+  return re.test(t) ? parseFloat(DEC === ',' ? t.replace(',', '.') : t) : NaN;
+}
+/* Gleitkomma-Rauschen entfernen (0.1 + 0.2), ohne Werte sichtbar zu verändern */
+function fixNum(v){ return isFinite(v) ? Math.round(v * 1e9) / 1e9 : v; }
+
+/* Datum streng prüfen: Länge passend zum Format und Kalenderdatum muss existieren
+   (sonst würde Date.UTC "31.02." oder "Monat 13" stillschweigend in ein anderes Datum umrechnen). */
+function validYMDHMS(y, mo, da, h, mi, se){
+  if (mo < 1 || mo > 12 || da < 1 || da > 31 || h > 23 || mi > 59 || se > 59) return false;
+  const t = new Date(Date.UTC(y, mo - 1, da));
+  return t.getUTCFullYear() === y && t.getUTCMonth() === mo - 1 && t.getUTCDate() === da;
+}
+function toDate(v, f){
+  if (!v) return null;
+  if (f === '610'){ const m = v.match(/^(\d{4})(\d{2})$/); return m && +m[2] >= 1 && +m[2] <= 12 ? {d:new Date(Date.UTC(+m[1], +m[2]-1, 1)), kind:'month'} : null; }
+  if (f === '602'){ const m = v.match(/^(\d{4})$/); return m ? {d:new Date(Date.UTC(+m[1], 0, 1)), kind:'year'} : null; }
+  const lenOk = {'102':/^\d{8}$/, '203':/^\d{12}$/, '204':/^\d{14}$/, '303':/^\d{12}[+-]\d{2}(\d{2})?$/, '304':/^\d{14}[+-]\d{2}(\d{2})?$/};
+  if (f && !lenOk[f]) return null;
+  if (f && !lenOk[f].test(v)) return null;
+  const m = v.match(/^(\d{4})(\d{2})(\d{2})(?:(\d{2})(\d{2})(\d{2})?)?/);
+  if (!m) return null;
+  if (!validYMDHMS(+m[1], +m[2], +m[3], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0))) return null;
+  let off = 0;
+  if (f === '303' || f === '304'){
+    const z = v.slice(f === '303' ? 12 : 14).match(/^([+-])(\d{2})(\d{2})?/);
+    if (z){ if (+z[2] > 14 || +(z[3] || 0) > 59) return null; off = (z[1] === '-' ? -1 : 1) * (+z[2] * 60 + +(z[3] || 0)); }
+  }
+  const sec = (f === '204' || f === '304') ? +(m[6] || 0) : 0;
+  const t = Date.UTC(+m[1], +m[2]-1, +m[3], +(m[4] || 0), +(m[5] || 0), sec) - off * 60000;
+  return {d:new Date(t), kind: (f === '102' || !m[4]) ? 'date' : 'datetime'};
+}
+function parseDtm(s){ const q = g(s,0,0), v = g(s,0,1), f = g(s,0,2); const r = toDate(v, f); return {q, v, f, d:r ? r.d : null, kind:r ? r.kind : null}; }
+
+function buildInterchange(parsed){
+  const r = {unb:null, unz:null, messages:[], orphans:[], unbCount:0, unzCount:0, nested:0};
+  let m = null;
+  for (const s of parsed.segs){
+    switch (s.tag){
+      case 'UNA': break;
+      case 'UNB': if (r.unb) r.unbCount++; else { r.unb = s; r.unbCount = 1; } break;
+      case 'UNZ': if (r.unz) r.unzCount++; else { r.unz = s; r.unzCount = 1; } break;
+      case 'UNG': case 'UNE': break;
+      case 'UNH':
+        if (m) r.nested++;
+        m = {unh:s, unt:null, segs:[s], ref:g(s,0), type:g(s,1,0),
+             ver:[g(s,1,1), g(s,1,2), g(s,1,3), g(s,1,4)].filter(Boolean).join(':'), rel:g(s,1,4), pruefis:[]};
+        r.messages.push(m); break;
+      case 'UNT':
+        if (m){ m.segs.push(s); m.unt = s; m = null; } else r.orphans.push(s);
+        break;
+      default:
+        if (m){
+          m.segs.push(s);
+          if (s.tag === 'RFF' && g(s,0) === 'Z13'){ const p = g(s,0,1); if (p && !m.pruefis.includes(p)) m.pruefis.push(p); }
+        } else r.orphans.push(s);
+    }
+  }
+  for (const msg of r.messages){
+    msg.header = {};
+    for (const s of msg.segs){
+      if (s.tag === 'IDE' || s.tag === 'UNS' || s.tag === 'LOC') break;
+      if (s.tag === 'BGM'){ msg.header.bgm = g(s,0); msg.header.docno = g(s,1); }
+      else if (s.tag === 'DTM' && g(s,0) === '137') msg.header.date = parseDtm(s);
+      else if (s.tag === 'NAD' && g(s,0) === 'MS') msg.header.ms = g(s,1);
+      else if (s.tag === 'NAD' && g(s,0) === 'MR') msg.header.mr = g(s,1);
+    }
+  }
+  return r;
+}
+
+function controlChecks(ic, warnings){
+  const out = (warnings || []).map(t => ({ok:false, warn:true, text:t}));
+  if (ic.unbCount > 1) out.push({ok:false, text:`Die Datei enthält ${ic.unbCount} Datenaustausche (UNB). Angezeigt und geprüft wird nur der erste Kopf, die Zählungen können nicht stimmen.`});
+  if (ic.nested) out.push({ok:false, text:`${ic.nested} Nachricht(en) ohne UNT vor dem nächsten UNH`});
+  const strict = x => /^\d+$/.test(String(x).trim()) ? +x : NaN;
+  for (const m of ic.messages){
+    if (!m.unt){ out.push({ok:false, text:`Nachricht ${m.ref}: UNT fehlt`}); continue; }
+    const cnt = strict(g(m.unt,0));
+    if (cnt !== m.segs.length) out.push({ok:false, text:`Nachricht ${m.ref}: UNT nennt ${cnt} Segmente, gezählt ${m.segs.length}`});
+    if (g(m.unt,1) !== m.ref) out.push({ok:false, text:`Nachricht ${m.ref}: Referenz im UNT ist ${g(m.unt,1)}`});
+  }
+  if (ic.unb && ic.unz){
+    if (strict(g(ic.unz,0)) !== ic.messages.length) out.push({ok:false, text:`UNZ nennt ${g(ic.unz,0)} Nachrichten, gezählt ${ic.messages.length}`});
+    if (g(ic.unz,1) !== g(ic.unb,4)) out.push({ok:false, text:`Datenaustauschreferenz in UNZ (${g(ic.unz,1)}) passt nicht zu UNB (${g(ic.unb,4)})`});
+  } else if (ic.unb && !ic.unz) out.push({ok:false, text:'UNZ fehlt'});
+  if (ic.orphans.length) out.push({ok:false, text:`${ic.orphans.length} Segment(e) außerhalb einer Nachricht`});
+  return out;
+}
+
+function describeSeg(s){
+  const name = SEG_NAMES[s.tag] || '';
+  let q = g(s,0);
+  if (s.tag === 'CCI' && !q) q = g(s,2);
+  const qt = QUAL[s.tag] && QUAL[s.tag][q];
+  return qt ? `${name} (${qt})` : name;
+}
+
+/* ------------------------------------------------------------------ *
+ *  MSCONS: Zählpunkte, OBIS-Kennzahlen und Werte
+ * ------------------------------------------------------------------ */
+function analyzeMscons(msg){
+  const locs = [];
+  let loc = null, ser = null, val = null;
+  const newLoc = (id, q) => { loc = {id, q, from:null, to:null, series:[], msg}; locs.push(loc); ser = null; val = null; };
+  const newSer = () => { if (!loc) newLoc('(ohne Zählpunkt)', ''); ser = {obis:'', unit:'', values:[], loc, msg}; loc.series.push(ser); val = null; };
+  for (const s of msg.segs){
+    switch (s.tag){
+      case 'LOC': newLoc(g(s,1), g(s,0)); break;
+      case 'LIN': newSer(); break;
+      case 'PIA': if (ser && (!ser.obis || g(s,0) === '5')) ser.obis = g(s,1); break;
+      case 'QTY': {
+        if (!ser) newSer();
+        val = {q:g(s,0,0), v:num(g(s,0,1)), raw:g(s,0,1), t:null, t2:null, sts:[]};
+        const u = g(s,0,2);
+        if (u && !ser.unit) ser.unit = u; else if (u && u !== ser.unit) ser.unitMismatch = (ser.unitMismatch || 0) + 1;
+        ser.values.push(val); break;
+      }
+      case 'DTM': {
+        const d = parseDtm(s);
+        if (val){
+          if (d.q === '163') val.t = d.d;
+          else if (d.q === '164') val.t2 = d.d;
+          else if (!val.t) val.t = d.d;
+        } else if (loc && !ser){
+          if (d.q === '163') loc.from = d.d; else if (d.q === '164') loc.to = d.d;
+        }
+        break;
+      }
+      case 'STS': if (val) val.sts.push(s.raw.slice(4)); break;
+      case 'UNT': case 'UNS': break;
+    }
+  }
+  const series = [];
+  for (const l of locs) for (const sr of l.series){
+    const vals = sr.values.filter(v => !isNaN(v.v));
+    sr.invalid = sr.values.length - vals.length;
+    vals.sort((a, b) => (a.t ? +a.t : 0) - (b.t ? +b.t : 0));
+    sr.values = vals;
+    const interval = vals.length > 0 && vals.every(v => v.t && v.t2);
+    let sum = 0, min = null, max = null;
+    for (const v of vals){
+      sum += v.v;
+      if (!min || v.v < min.v) min = v;
+      if (!max || v.v > max.v) max = v;
+    }
+    sr.interval = interval;
+    sr.kind = interval ? (vals.length > 1 ? 'Lastgang' : 'Energiemenge') : 'Zählerstand';
+    sr.menge = interval ? fixNum(sum) : (vals.length ? vals[vals.length-1].v : NaN);
+    sr.dup = 0; sr.reversed = 0;
+    for (let i = 0; i < vals.length; i++){
+      if (vals[i].t && vals[i].t2 && vals[i].t2 <= vals[i].t) sr.reversed++;
+      if (i && vals[i].t && vals[i-1].t && +vals[i].t === +vals[i-1].t) sr.dup++;
+    }
+    sr.min = min; sr.max = max;
+    sr.from = vals.length ? vals[0].t : l.from;
+    const last = vals[vals.length-1];
+    sr.to = last ? (last.t2 || last.t) : l.to;
+    sr.count = vals.length;
+    sr.subst = vals.filter(v => v.q && v.q !== '220').length;
+    series.push(sr);
+  }
+  return {locs, series};
+}
+
+/* ------------------------------------------------------------------ *
+ *  Vorgänge (IDE+24): UTILMD, UTILTS, ...
+ * ------------------------------------------------------------------ */
+function analyzeVorgaenge(msg){
+  const list = [];
+  let v = null;
+  for (const s of msg.segs){
+    if (s.tag === 'IDE' && g(s,0) === '24'){
+      v = {nr:g(s,1), segs:[s], locs:[], dtms:[], sts:[], pruefi:'', msg};
+      list.push(v); continue;
+    }
+    if (!v || s.tag === 'UNT') continue;
+    v.segs.push(s);
+    if (s.tag === 'LOC') v.locs.push({q:g(s,0), id:g(s,1)});
+    else if (s.tag === 'DTM') v.dtms.push(parseDtm(s));
+    else if (s.tag === 'STS') v.sts.push(s);
+    else if (s.tag === 'RFF' && g(s,0) === 'Z13' && !v.pruefi) v.pruefi = g(s,0,1);
+  }
+  for (const x of list){
+    if (!x.pruefi) x.pruefi = msg.pruefis[0] || '';
+    x.malo = (x.locs.find(l => l.q === 'Z16') || x.locs.find(l => l.q === '172') || {}).id || '';
+    const melos = x.locs.filter(l => l.q === 'Z17');
+    x.melo = melos.length ? melos[0].id + (melos.length > 1 ? ` (+${melos.length-1})` : '') : '';
+    x.status = x.sts.map(stsText).join('; ');
+    if (msg.type === 'UTILTS' || msg.header.bgm === 'Z36') x.formula = buildFormula(x);
+  }
+  return list;
+}
+function stsText(s){
+  const q = g(s,0);
+  const codes = s.els.slice(1).map(e => e.filter(Boolean).join(':')).filter(Boolean);
+  let txt = codes.join(' / ');
+  if (q === 'Z23' && UTILTS.status[g(s,1)]) txt = `${g(s,1)} ${UTILTS.status[g(s,1)]}`;
+  const ql = (QUAL.STS[q] || q);
+  return txt ? `${ql}: ${txt}` : ql;
+}
+
+/* UTILTS-Berechnungsformel nach AHB 1.0b */
+function buildFormula(v){
+  const f = {malo:'', gueltig:null, status:'', richtung:'', root:'', zwecke:[], steps:new Map()};
+  let mode = null, cur = null, cci = '';
+  for (const s of v.segs){
+    switch (s.tag){
+      case 'LOC': if (g(s,0) === '172') f.malo = g(s,1); break;
+      case 'DTM': if (g(s,0) === '157') f.gueltig = parseDtm(s); break;
+      case 'STS': if (g(s,0) === 'Z23') f.status = g(s,1); break;
+      case 'CCI': {
+        const a = g(s,0), c = g(s,2);
+        if (a === 'Z30') f.richtung = c; else cci = a || c;
+        break;
+      }
+      case 'SEQ': {
+        const q = g(s,0);
+        if (q === 'Z36'){ mode = 'E'; cur = null; }
+        else if (q === 'Z37'){
+          mode = 'B';
+          cur = {id:g(s,1), melo:'', ref:'', op:'', flow:'', lossT:null, lossL:null};
+          if (!f.steps.has(cur.id)) f.steps.set(cur.id, []);
+          f.steps.get(cur.id).push(cur);
+        } else mode = null;
+        break;
+      }
+      case 'RFF': {
+        const q = g(s,0), val = g(s,0,1);
+        if (mode === 'E' && q === 'Z23') f.root = val;
+        else if (mode === 'B' && cur){ if (q === 'Z19') cur.melo = val; else if (q === 'Z23') cur.ref = val; }
+        break;
+      }
+      case 'CAV': {
+        const code = g(s,0);
+        if (cci === 'Z27') f.zwecke.push(code);
+        else if (cur){
+          if (cci === 'Z86') cur.op = code;
+          else if (cci === 'Z87') cur.flow = code;
+          else if (cci === 'Z16') cur.lossT = num(g(s,0,3));
+          else if (cci === 'Z28' || cci === 'ZB2') cur.lossL = num(g(s,0,3));
+        }
+        break;
+      }
+    }
+  }
+  // Messlokationen durchnummerieren
+  const melos = [];
+  for (const parts of f.steps.values()) for (const p of parts) if (p.melo && !melos.includes(p.melo)) melos.push(p.melo);
+  f.melos = melos;
+  f.alias = id => 'M' + (melos.indexOf(id) + 1);
+  f.expr = id => stepExpr(f, id, new Set(), {n:0});
+  return f;
+}
+/* Mehrfach verwiesene Schritte würden die Formel exponentiell aufblähen (Schutz vor Rechenschritt-Bomben). */
+function stepExpr(f, id, seen, bud){
+  if (++bud.n > LIMITS.exprNodes || seen.size > LIMITS.exprDepth) return '…';
+  if (seen.has(id)) return `[Zyklus bei Schritt ${id}]`;
+  const parts = f.steps.get(id);
+  if (!parts || !parts.length) return `[Schritt ${id} fehlt]`;
+  const s2 = new Set(seen); s2.add(id);
+  const term = p => {
+    if (p.melo) return f.alias(p.melo);
+    if (p.ref){ const inner = stepExpr(f, p.ref, s2, bud); return /[+\u2212×\/]/.test(inner) && !/^max\(/.test(inner) ? `(${inner})` : inner; }
+    return '?';
+  };
+  const div = parts.find(p => p.op === 'Z81'), dvs = parts.find(p => p.op === 'Z80');
+  if (div || dvs) return `${div ? term(div) : '?'} / ${dvs ? term(dvs) : '?'}`;
+  if (parts.every(p => p.op === 'Z82')) return parts.map(term).join(' × ');
+  if (parts.length === 1 && parts[0].op === 'Z83') return `max(0; ${term(parts[0])})`;
+  return parts.map((p, i) => {
+    const neg = p.op === 'Z70';
+    if (i === 0) return (neg ? '\u2212' : '') + term(p);
+    return (neg ? ' \u2212 ' : ' + ') + term(p);
+  }).join('');
+}
+
+/* ------------------------------------------------------------------ *
+ *  APERAK und CONTRL
+ * ------------------------------------------------------------------ */
+function analyzeAperak(msg){
+  const r = {refs:[], dtms:[], texts:[], errors:[], msg};
+  let e = null;
+  for (const s of msg.segs){
+    if (s.tag === 'ERC'){ e = {code:g(s,0), texts:[], refs:[], msg}; r.errors.push(e); }
+    else if (s.tag === 'FTX'){ const t = (s.els[3] || []).filter(Boolean).join(' '); (e ? e.texts : r.texts).push(t); }
+    else if (s.tag === 'RFF'){ (e ? e.refs : r.refs).push({q:g(s,0), v:g(s,0,1)}); }
+    else if (s.tag === 'DTM' && !e) r.dtms.push(parseDtm(s));
+  }
+  return r;
+}
+function analyzeContrl(msg){
+  const rows = [];
+  let cur = null;
+  for (const s of msg.segs){
+    if (s.tag === 'UCI'){
+      cur = {level:'Übertragungsdatei', ref:g(s,0), about:`${g(s,1)} → ${g(s,2)}`, action:g(s,3), err:g(s,4), pos:''};
+      rows.push(cur);
+    } else if (s.tag === 'UCM'){
+      cur = {level:'Nachricht', ref:g(s,0), about:[g(s,1,0), g(s,1,1), g(s,1,2), g(s,1,4)].filter(Boolean).join(':'), action:g(s,2), err:g(s,3), pos:''};
+      rows.push(cur);
+    } else if (s.tag === 'UCS'){
+      rows.push({level:'Segment', ref:'', about:'', action:'', err:g(s,1), pos:`Segment ${g(s,0)}`});
+    } else if (s.tag === 'UCD'){
+      rows.push({level:'Datenelement', ref:'', about:'', action:'', err:g(s,0), pos:`Element ${g(s,1,0)}${g(s,1,1) ? ':' + g(s,1,1) : ''}`});
+    }
+  }
+  return rows;
+}
+
+function analyzeFile(name, size, text){
+  const parsed = parseEdifact(text);
+  const ic = buildInterchange(parsed);
+  if (!ic.messages.length && !ic.unb) throw new Error('Die Datei enthält keine EDIFACT-Nachricht (UNH fehlt).');
+  DEC = parsed.delims.dec;
+  const res = {name, size, parsed, ic, checks:controlChecks(ic, parsed.warnings), series:[], vorgaenge:[], aperak:[], contrl:[]};
+  for (const m of ic.messages){
+    if (m.type === 'MSCONS') res.series.push(...analyzeMscons(m).series);
+    else if (m.type === 'APERAK') res.aperak.push(analyzeAperak(m));
+    else if (m.type === 'CONTRL') res.contrl.push(...analyzeContrl(m));
+    if (m.segs.some(s => s.tag === 'IDE' && g(s,0) === '24')) res.vorgaenge.push(...analyzeVorgaenge(m));
+  }
+  for (const sr of res.series){
+    const id = `${sr.loc.id} ${sr.obis}`.trim();
+    if (sr.invalid) res.checks.push({ok:false, warn:true, text:`${id}: ${sr.invalid} Wert(e) mit ungültigem Zahlenformat wurden nicht berücksichtigt`});
+    if (sr.unitMismatch) res.checks.push({ok:false, warn:true, text:`${id}: ${sr.unitMismatch} Wert(e) mit abweichender Einheit (erwartet ${sr.unit})`});
+    if (sr.dup) res.checks.push({ok:false, warn:true, text:`${id}: ${sr.dup} doppelte Zeitstempel`});
+    if (sr.reversed) res.checks.push({ok:false, warn:true, text:`${id}: ${sr.reversed} Intervall(e) mit Ende vor oder gleich Beginn`});
+  }
+  return res;
+}
+// ==PARSER END==
+
+/* ------------------------------------------------------------------ *
+ *  Formatierung
+ * ------------------------------------------------------------------ */
+const state = {tabs:[], active:null, tz:'UTC', seq:0};
+const fmtCache = {};
+function dtf(kind){
+  const key = state.tz + kind;
+  if (!fmtCache[key]){
+    const o = {timeZone: kind === 'date' ? 'UTC' : state.tz, day:'2-digit', month:'2-digit', year:'numeric'};
+    if (kind === 'datetime'){ o.hour = '2-digit'; o.minute = '2-digit'; o.hourCycle = 'h23'; }
+    if (kind === 'month'){ delete o.day; }
+    fmtCache[key] = new Intl.DateTimeFormat('de-DE', o);
+  }
+  return fmtCache[key];
+}
+function fd(d, kind = 'datetime'){ return d ? dtf(kind === 'year' ? 'month' : kind).format(d) : ''; }
+function fdtm(x){ return x ? (x.d ? fd(x.d, x.kind) : x.v) : ''; }
+const nf3 = new Intl.NumberFormat('de-DE', {minimumFractionDigits:3, maximumFractionDigits:6});
+const nf0 = new Intl.NumberFormat('de-DE');
+function fn(v){ return (v == null || isNaN(v)) ? '' : nf3.format(v); }
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function tzLabel(){ return state.tz === 'UTC' ? 'UTC' : 'deutsche Zeit'; }
+const offCache = new Map();
+const berlinFmt = new Intl.DateTimeFormat('en-US', {timeZone:'Europe/Berlin', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hourCycle:'h23'});
+function tzOff(t){
+  if (state.tz === 'UTC') return 0;
+  const k = Math.floor(t / 3600000);
+  let o = offCache.get(k);
+  if (o === undefined){
+    const p = {}; for (const x of berlinFmt.formatToParts(new Date(k * 3600000))) p[x.type] = x.value;
+    o = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute) - k * 3600000;
+    offCache.set(k, o);
+  }
+  return o;
+}
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('on');
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('on'), 2600);
+}
+function css(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+async function saveFile(filename, text){
+  const data = '\uFEFF' + text;
+  if (window.claude && typeof window.claude.use === 'function'){
+    let dl = null;
+    try { dl = await window.claude.use('downloads'); } catch(e){}
+    if (!dl){ toast('Speichern ist in dieser Ansicht nicht verfügbar.'); return; }
+    try { await dl.save({filename, data}); toast(`${filename} gespeichert`); }
+    catch(e){ if (e && e.code !== 'declined') toast('Speichern nicht möglich: ' + (e.message || e.code)); }
+    return;
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([data], {type:'text/csv;charset=utf-8'}));
+  a.download = safeName(filename); document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  toast(`${filename} gespeichert`);
+}
+/* CSV-Injection: Text, der mit = + - @ Tab oder CR beginnt, würde in Excel/LibreOffice als Formel ausgeführt.
+   Dateiinhalte sind nicht vertrauenswürdig, daher wird ein Apostroph vorangestellt. Zahlen (c.csv) bleiben unverändert. */
+function csvCell(v, trusted){
+  let s = String(v == null ? '' : v);
+  if (!trusted && /^[=+\-@\t\r]/.test(s)) s = "'" + s;
+  return /[;"\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+function toCsv(cols, rows){ return [cols.map(c => csvCell(c.label, true)).join(';'), ...rows.map(r => cols.map(c => c.csv ? csvCell(c.csv(r), true) : csvCell(c.text(r))).join(';'))].join('\r\n'); }
+function safeName(n){ return String(n).replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_').replace(/^\.+/, '_').slice(0, 120) || 'datei'; }
+
+/* ------------------------------------------------------------------ *
+ *  Tabelle mit Sortierung, Auswahl und Tastatursteuerung
+ * ------------------------------------------------------------------ */
+class Grid {
+  constructor(wrap, cols, opts = {}){
+    this.wrap = wrap; this.cols = cols; this.opts = opts;
+    this.table = document.createElement('table'); this.table.className = 'grid';
+    wrap.appendChild(this.table); wrap.tabIndex = 0;
+    this.rows = []; this.view = []; this.sel = null; this.sortCol = null; this.sortDir = 1; this.filter = ''; this.limit = 3000;
+    this.table.addEventListener('click', e => {
+      const th = e.target.closest('th');
+      if (th){ const c = this.cols[+th.dataset.c]; if (this.sortCol === c) this.sortDir *= -1; else { this.sortCol = c; this.sortDir = 1; } this.render(); return; }
+      const tr = e.target.closest('tbody tr');
+      if (tr && tr.dataset.i != null) this.select(this.view[+tr.dataset.i], true);
+    });
+    wrap.addEventListener('keydown', e => {
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      e.preventDefault();
+      let i = this.view.indexOf(this.sel);
+      i = Math.max(0, Math.min(this.view.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)));
+      if (this.view[i]) this.select(this.view[i], true);
+    });
+  }
+  setRows(rows){ this.rows = rows; this.render(); }
+  setFilter(f){ this.filter = f.toLowerCase(); this.render(); }
+  render(){
+    let v = this.rows;
+    if (this.filter){ const f = this.filter; v = v.filter(r => this.cols.some(c => String(c.text(r)).toLowerCase().includes(f))); }
+    if (this.sortCol){
+      const c = this.sortCol, k = c.sort || c.text, d = this.sortDir;
+      v = v.slice().sort((a, b) => { const x = k(a), y = k(b); return (x < y ? -1 : x > y ? 1 : 0) * d; });
+    }
+    this.view = v;
+    const shown = v.slice(0, this.limit);
+    let h = '<thead><tr>' + this.cols.map((c, i) =>
+      `<th data-c="${i}" class="${c.num ? 'n' : ''}"${this.sortCol === c ? ` aria-sort="${this.sortDir > 0 ? 'ascending' : 'descending'}"` : ''}>${esc(c.label)}</th>`).join('') + '</tr></thead><tbody>';
+    shown.forEach((r, i) => {
+      const cls = [r === this.sel ? 'sel' : '', this.opts.rowClass ? this.opts.rowClass(r) : ''].join(' ').trim();
+      h += `<tr data-i="${i}"${cls ? ` class="${cls}"` : ''}>` + this.cols.map(c => {
+        const cl = [c.num ? 'n' : '', c.cls || ''].join(' ').trim();
+        return `<td${cl ? ` class="${cl}"` : ''}>${c.html ? c.html(r) : esc(c.text(r))}</td>`;
+      }).join('') + '</tr>';
+    });
+    h += '</tbody>';
+    this.table.innerHTML = h;
+    let more = this.wrap.querySelector('.more');
+    if (v.length > this.limit){
+      if (!more){ more = document.createElement('div'); more.className = 'more'; this.wrap.appendChild(more); }
+      more.innerHTML = `${nf0.format(this.limit)} von ${nf0.format(v.length)} Zeilen angezeigt. <button type="button" class="btn small">Weitere 3.000 anzeigen</button>`;
+      more.querySelector('button').onclick = () => { this.limit += 3000; this.render(); };
+    } else if (more) more.remove();
+    if (this.opts.onRender) this.opts.onRender(v);
+  }
+  select(r, user){
+    this.sel = r;
+    this.table.querySelectorAll('tbody tr.sel').forEach(tr => tr.classList.remove('sel'));
+    const i = this.view.indexOf(r);
+    const tr = i >= 0 ? this.table.querySelector(`tbody tr[data-i="${i}"]`) : null;
+    if (tr){ tr.classList.add('sel'); if (user || this.opts.scroll !== false) tr.scrollIntoView({block:'nearest'}); }
+    if (this.opts.onSelect) this.opts.onSelect(r, user);
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Diagramm (Canvas, ohne externe Bibliotheken)
+ * ------------------------------------------------------------------ */
+class Chart {
+  constructor(wrap){
+    this.wrap = wrap; this.canvas = document.createElement('canvas'); wrap.appendChild(this.canvas);
+    this.ctx = this.canvas.getContext('2d');
+    this.data = []; this.range = null; this.mode = 'line'; this.hover = null; this.drag = null; this.title = ''; this.unit = '';
+    this.ro = new ResizeObserver(() => this.draw()); this.ro.observe(wrap);
+    const c = this.canvas, tip = document.getElementById('tip');
+    c.addEventListener('pointerdown', e => { if (!this.data.length) return; c.setPointerCapture(e.pointerId); this.drag = {x0:this.xOf(e), x1:this.xOf(e)}; });
+    c.addEventListener('pointermove', e => {
+      const x = this.xOf(e);
+      if (this.drag){ this.drag.x1 = x; this.hover = null; tip.style.display = 'none'; this.draw(); return; }
+      this.hoverAt(x, e);
+    });
+    c.addEventListener('pointerup', () => {
+      if (!this.drag) return;
+      const {x0, x1} = this.drag; this.drag = null;
+      if (Math.abs(x1 - x0) > 6){ const a = this.tOf(Math.min(x0, x1)), b = this.tOf(Math.max(x0, x1)); this.range = [a, b]; }
+      this.draw();
+    });
+    c.addEventListener('pointerleave', () => { this.hover = null; tip.style.display = 'none'; if (!this.drag) this.draw(); });
+    c.addEventListener('dblclick', () => { this.range = null; this.draw(); });
+  }
+  set(data, title, unit){ this.data = data; this.title = title; this.unit = unit; this.range = null; this.hover = null; this.draw(); }
+  xOf(e){ const r = this.canvas.getBoundingClientRect(); return e.clientX - r.left; }
+  tOf(x){ const p = this.plot; return p.t0 + (x - p.x) / p.w * (p.t1 - p.t0); }
+  hoverAt(x, e){
+    const tip = document.getElementById('tip');
+    if (!this.plot || !this.data.length || x < this.plot.x || x > this.plot.x + this.plot.w){ this.hover = null; tip.style.display = 'none'; this.draw(); return; }
+    const t = this.tOf(x), d = this.data;
+    let lo = 0, hi = d.length - 1;
+    while (lo < hi){ const m = (lo + hi) >> 1; if (d[m].t < t) lo = m + 1; else hi = m; }
+    let i = lo;
+    if (this.mode === 'step'){ while (i > 0 && d[i].t > t) i--; }
+    else if (i > 0 && Math.abs(d[i-1].t - t) < Math.abs(d[i].t - t)) i--;
+    this.hover = i; this.draw();
+    const p = d[i];
+    const range = p.t2 ? `${fd(new Date(p.t))} – ${fd(new Date(p.t2))}` : fd(new Date(p.t));
+    tip.innerHTML = `${esc(range)}<br><b>${esc(fn(p.v))} ${esc(this.unit)}</b>${p.q && p.q !== '220' ? `<br><span class="warn">${esc(QUAL.QTY[p.q] || 'Qualifier ' + p.q)}</span>` : ''}`;
+    tip.style.display = 'block';
+    const tw = tip.offsetWidth, th = tip.offsetHeight;
+    let left = e.clientX + 14, top = e.clientY + 14;
+    if (left + tw > innerWidth - 8) left = e.clientX - tw - 14;
+    if (top + th > innerHeight - 8) top = e.clientY - th - 14;
+    tip.style.left = left + 'px'; tip.style.top = top + 'px';
+  }
+  draw(){
+    const W = this.wrap.clientWidth, H = this.wrap.clientHeight;
+    if (!W || !H) return;
+    const dpr = window.devicePixelRatio || 1, c = this.canvas, ctx = this.ctx;
+    if (c.width !== Math.round(W * dpr) || c.height !== Math.round(H * dpr)){ c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const col = {bg:css('--panel'), paper:css('--paper'), grid:css('--grid'), minor:css('--grid-minor'), trace:css('--trace'),
+                 warn:css('--warn'), ink:css('--ink'), muted:css('--muted'), accent:css('--accent'), line:css('--line')};
+    const font = css('--font');
+    ctx.fillStyle = col.bg; ctx.fillRect(0, 0, W, H);
+    const P = {x:66, y:34, w:Math.max(10, W - 66 - 18), h:Math.max(10, H - 34 - 44)};
+    ctx.fillStyle = col.paper; ctx.fillRect(P.x, P.y, P.w, P.h);
+    ctx.font = `600 13px ${font}`; ctx.fillStyle = col.ink; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+    ctx.fillText(this.title || '', W / 2, 16, W - 20);
+    const d = this.data;
+    if (!d.length){
+      ctx.font = `13px ${font}`; ctx.fillStyle = col.muted; ctx.fillText('Keine Werte zum Anzeigen', P.x + P.w / 2, P.y + P.h / 2);
+      this.plot = null; return;
+    }
+    const tMin = d[0].t, tMax = Math.max(d[d.length-1].t2 || d[d.length-1].t, d[d.length-1].t + 1);
+    const [t0, t1] = this.range || [tMin, tMax];
+    let vMin = Infinity, vMax = -Infinity;
+    for (const p of d){ if ((p.t2 || p.t) < t0 || p.t > t1) continue; if (p.v < vMin) vMin = p.v; if (p.v > vMax) vMax = p.v; }
+    if (vMin === Infinity){ vMin = 0; vMax = 1; }
+    if (vMin > 0) vMin = 0;
+    const Y = niceTicks(vMin, vMax, Math.max(3, Math.floor(P.h / 46)));
+    this.plot = {...P, t0, t1};
+    const X = t => P.x + (t - t0) / (t1 - t0) * P.w;
+    const Yp = v => P.y + P.h - (v - Y.lo) / (Y.hi - Y.lo) * P.h;
+    // Raster
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = col.minor; ctx.beginPath();
+    for (let v = Y.lo; v <= Y.hi + Y.step / 2; v += Y.step / 5){ const y = Math.round(Yp(v)) + .5; ctx.moveTo(P.x, y); ctx.lineTo(P.x + P.w, y); }
+    ctx.stroke();
+    const ticks = timeTicks(t0, t1, P.w);
+    ctx.beginPath();
+    for (const tk of ticks.minor){ const x = Math.round(X(tk)) + .5; ctx.moveTo(x, P.y); ctx.lineTo(x, P.y + P.h); }
+    ctx.stroke();
+    ctx.strokeStyle = col.grid; ctx.beginPath();
+    for (let v = Y.lo; v <= Y.hi + Y.step / 2; v += Y.step){ const y = Math.round(Yp(v)) + .5; ctx.moveTo(P.x, y); ctx.lineTo(P.x + P.w, y); }
+    for (const tk of ticks.major){ const x = Math.round(X(tk.t)) + .5; ctx.moveTo(x, P.y); ctx.lineTo(x, P.y + P.h); }
+    ctx.stroke();
+    if (Y.lo < 0){ ctx.strokeStyle = col.muted; ctx.beginPath(); const y = Math.round(Yp(0)) + .5; ctx.moveTo(P.x, y); ctx.lineTo(P.x + P.w, y); ctx.stroke(); }
+    ctx.strokeStyle = col.line; ctx.strokeRect(P.x + .5, P.y + .5, P.w - 1, P.h - 1);
+    // Beschriftung
+    ctx.font = `11px ${font}`; ctx.fillStyle = col.muted; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    const yDec = Y.step < 1 ? Math.min(6, Math.ceil(-Math.log10(Y.step))) : 0;
+    const yf = new Intl.NumberFormat('de-DE', {minimumFractionDigits:yDec, maximumFractionDigits:yDec});
+    for (let v = Y.lo; v <= Y.hi + Y.step / 2; v += Y.step) ctx.fillText(yf.format(Math.abs(v) < Y.step / 1e6 ? 0 : v), P.x - 6, Yp(v));
+    ctx.textAlign = 'left'; ctx.textBaseline = 'bottom'; ctx.fillText(this.unit, 6, P.y - 4);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    for (const tk of ticks.major){
+      const x = X(tk.t); if (x < P.x - 1 || x > P.x + P.w + 1) continue;
+      ctx.fillText(tk.l1, x, P.y + P.h + 5);
+      if (tk.l2){ ctx.fillStyle = col.ink; ctx.fillText(tk.l2, x, P.y + P.h + 20); ctx.fillStyle = col.muted; }
+    }
+    ctx.textAlign = 'right'; ctx.textBaseline = 'bottom'; ctx.fillText('Zeit: ' + tzLabel(), W - 18, P.y - 4);
+    // Kurve
+    ctx.save(); ctx.beginPath(); ctx.rect(P.x, P.y, P.w, P.h); ctx.clip();
+    ctx.strokeStyle = col.trace; ctx.lineWidth = 1.5; ctx.lineJoin = 'round';
+    let i0 = 0; while (i0 < d.length - 1 && (d[i0].t2 || d[i0].t) < t0) i0++;
+    if (i0 > 0) i0--;
+    let i1 = d.length - 1; while (i1 > 0 && d[i1].t > t1) i1--;
+    if (i1 < d.length - 1) i1++;
+    const n = i1 - i0 + 1;
+    ctx.beginPath();
+    if (n > P.w * 3){
+      // Verdichtung: pro Pixelspalte Minimum und Maximum
+      let col0 = -1, mn = 0, mx = 0, first = true;
+      for (let i = i0; i <= i1; i++){
+        const x = Math.floor(X(d[i].t)), y = Yp(d[i].v);
+        if (x !== col0){ if (col0 >= 0){ if (first){ ctx.moveTo(col0, mn); first = false; } ctx.lineTo(col0, mn); ctx.lineTo(col0, mx); } col0 = x; mn = mx = y; }
+        else { if (y < mn) mn = y; if (y > mx) mx = y; }
+      }
+      if (col0 >= 0){ ctx.lineTo(col0, mn); ctx.lineTo(col0, mx); }
+    } else {
+      for (let i = i0; i <= i1; i++){
+        const p = d[i], x = X(p.t), y = Yp(p.v);
+        if (i === i0) ctx.moveTo(x, y); else if (this.mode === 'step') ctx.lineTo(x, Yp(d[i-1].v)), ctx.lineTo(x, y); else ctx.lineTo(x, y);
+        if (this.mode === 'step' && p.t2) ctx.lineTo(X(p.t2), y);
+      }
+    }
+    ctx.stroke();
+    if (n <= P.w / 2){
+      ctx.fillStyle = col.warn;
+      for (let i = i0; i <= i1; i++){ const p = d[i]; if (p.q && p.q !== '220'){ ctx.beginPath(); ctx.arc(X(this.mode === 'step' && p.t2 ? (p.t + p.t2) / 2 : p.t), Yp(p.v), 3, 0, 7); ctx.fill(); } }
+    }
+    if (this.hover != null && d[this.hover]){
+      const p = d[this.hover], x = X(this.mode === 'step' && p.t2 ? (p.t + p.t2) / 2 : p.t);
+      ctx.strokeStyle = col.accent; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(Math.round(x) + .5, P.y); ctx.lineTo(Math.round(x) + .5, P.y + P.h); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = col.accent; ctx.beginPath(); ctx.arc(x, Yp(p.v), 3.5, 0, 7); ctx.fill();
+    }
+    if (this.drag){
+      const a = Math.min(this.drag.x0, this.drag.x1), b = Math.max(this.drag.x0, this.drag.x1);
+      ctx.fillStyle = col.accent; ctx.globalAlpha = .15; ctx.fillRect(a, P.y, b - a, P.h); ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+  }
+}
+function niceTicks(min, max, count){
+  if (min === max){ min -= 1; max += 1; }
+  const raw = (max - min) / count, mag = 10 ** Math.floor(Math.log10(raw)), e = raw / mag;
+  const step = (e >= 7.5 ? 10 : e >= 3.5 ? 5 : e >= 1.5 ? 2 : 1) * mag;
+  return {lo:Math.floor(min / step) * step, hi:Math.ceil(max / step) * step, step};
+}
+function timeTicks(t0, t1, w){
+  const M = 60000, steps = [1,5,15,30,60,120,180,360,720,1440,2880,10080,20160,43200,86400,172800,525600].map(x => x * M);
+  const maxT = Math.max(2, Math.floor(w / 92));
+  let step = steps.find(s => (t1 - t0) / s <= maxT) || steps[steps.length - 1];
+  const minorStep = step >= 1440 * M ? (step === 1440 * M ? 360 * M : step / 7) : step / (step >= 60 * M ? 4 : 3);
+  const major = [], minor = [];
+  const align = (t, s) => { const off = tzOff(t); const loc = Math.ceil((t + off) / s) * s; return loc - tzOff(loc - off); };
+  let prevDay = '';
+  for (let t = align(t0, step), k = 0; t <= t1 && k < 400; k++){
+    const off = tzOff(t), L = new Date(t + off);
+    const dd = String(L.getUTCDate()).padStart(2, '0'), mm = String(L.getUTCMonth() + 1).padStart(2, '0'), yy = L.getUTCFullYear();
+    const day = `${dd}.${mm}.${yy}`;
+    let l1, l2 = '';
+    if (step < 1440 * M){ l1 = `${String(L.getUTCHours()).padStart(2, '0')}:${String(L.getUTCMinutes()).padStart(2, '0')}`; if (day !== prevDay) l2 = day; }
+    else { l1 = `${dd}.${mm}.`; if (String(yy) !== prevDay) l2 = String(yy); }
+    prevDay = step < 1440 * M ? day : String(yy);
+    major.push({t, l1, l2});
+    const loc = t + off + step;
+    t = loc - tzOff(loc - off);
+  }
+  if (minorStep >= M) for (let t = align(t0, minorStep), k = 0; t <= t1 && k < 2000; k++){ minor.push(t); const off = tzOff(t); const loc = t + off + minorStep; t = loc - tzOff(loc - off); }
+  return {major, minor};
+}
+
+/* ------------------------------------------------------------------ *
+ *  Dateien öffnen
+ * ------------------------------------------------------------------ */
+async function sha256(buf){
+  try {
+    if (!(window.crypto && crypto.subtle)) return '';
+    const h = new Uint8Array(await crypto.subtle.digest('SHA-256', buf));
+    return [...h].map(b => b.toString(16).padStart(2, '0')).join('');
+  } catch(e){ return ''; }
+}
+async function openFiles(files){
+  let last = null;
+  if (files.length > LIMITS.files){ toast(`Es werden nur die ersten ${LIMITS.files} Dateien geöffnet.`); files = files.slice(0, LIMITS.files); }
+  for (const f of files){
+    try {
+      if (state.tabs.length >= LIMITS.tabs) throw new Error(`Höchstens ${LIMITS.tabs} Dateien gleichzeitig`);
+      if (f.size > LIMITS.file) throw new Error(`Datei ist größer als ${Math.round(LIMITS.file / 1048576)} MB und wird nicht geöffnet`);
+      const buf = await f.arrayBuffer();
+      last = addTab(f.name, f.size, decodeText(buf), await sha256(buf));
+    } catch(e){ toast(`${f.name}: ${e.message}`); }
+  }
+  if (last) activate(last);
+}
+function closeAll(){
+  for (const t of [...state.tabs]){ if (t.chart) t.chart.ro.disconnect(); t.el.remove(); }
+  state.tabs = []; state.active = null; offCache.clear();
+  renderTabStrip(); document.getElementById('empty').hidden = false;
+  toast('Alle Dateien geschlossen, Daten aus dem Speicher entfernt');
+}
+function addTab(name, size, text, hash){
+  const tab = {id:++state.seq, name, size, hash:hash || '', res:null, err:null};
+  try { tab.res = analyzeFile(name, size, text); } catch(e){ tab.err = e.message; }
+  state.tabs.push(tab);
+  buildTab(tab);
+  renderTabStrip();
+  return tab;
+}
+function closeTab(tab){
+  const i = state.tabs.indexOf(tab);
+  if (i < 0) return;
+  if (tab.chart) tab.chart.ro.disconnect();
+  tab.el.remove(); state.tabs.splice(i, 1);
+  if (state.active === tab) state.active = null;
+  renderTabStrip();
+  const next = state.tabs[Math.min(i, state.tabs.length - 1)];
+  if (next) activate(next); else document.getElementById('empty').hidden = false;
+}
+function activate(tab){
+  state.active = tab;
+  document.getElementById('empty').hidden = true;
+  for (const t of state.tabs) t.el.hidden = t !== tab;
+  renderTabStrip();
+  if (tab.chart) requestAnimationFrame(() => tab.chart.draw());
+}
+function tabType(tab){
+  if (tab.err) return 'Fehler';
+  const types = [...new Set(tab.res.ic.messages.map(m => m.type))];
+  return types.length ? types.join('/') : 'EDI';
+}
+function renderTabStrip(){
+  document.getElementById('btnCloseAll').hidden = !state.tabs.length;
+  const nav = document.getElementById('tabs');
+  nav.innerHTML = '';
+  for (const t of state.tabs){
+    const b = document.createElement('div');
+    b.className = 'ftab' + (t.err ? ' err' : ''); b.setAttribute('role', 'tab'); b.tabIndex = 0;
+    b.setAttribute('aria-selected', String(t === state.active)); b.title = t.name;
+    b.innerHTML = `<span class="type">${esc(tabType(t))}</span><span class="name">${esc(t.name)}</span><button type="button" class="x" aria-label="${esc(t.name)} schließen">×</button>`;
+    b.addEventListener('click', e => { if (e.target.closest('.x')) closeTab(t); else activate(t); });
+    b.addEventListener('auxclick', e => { if (e.button === 1){ e.preventDefault(); closeTab(t); } });
+    b.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); activate(t); } else if (e.key === 'Delete') closeTab(t); });
+    nav.appendChild(b);
+  }
+  const act = nav.querySelector('[aria-selected="true"]');
+  if (act) act.scrollIntoView({block:'nearest', inline:'nearest'});
+}
+
+/* ------------------------------------------------------------------ *
+ *  Aufbau einer Dateiansicht
+ * ------------------------------------------------------------------ */
+function buildTab(tab){
+  const el = document.createElement('div');
+  el.className = 'fv'; el.hidden = true; tab.el = el;
+  document.getElementById('main').appendChild(el);
+  if (tab.err){
+    el.style.display = 'block';
+    el.innerHTML = `<div class="errbox"><h2>Datei kann nicht gelesen werden</h2><p>${esc(tab.err)}</p><p class="lbl">${esc(tab.name)}</p></div>`;
+    return;
+  }
+  const r = tab.res;
+  const views = [];
+  if (r.series.length) views.push(['mscons', 'Messwerte']);
+  if (r.vorgaenge.length) views.push(['vorg', 'Vorgänge']);
+  if (r.aperak.length) views.push(['aperak', 'Fehlermeldungen']);
+  if (r.contrl.length) views.push(['contrl', 'Syntaxprüfung']);
+  views.push(['segs', 'Segmente'], ['text', 'EDI-Text']);
+  tab.views = views;
+  el.innerHTML = `
+    <aside class="side">
+      <div><h2 class="pane-h">Eigenschaften</h2><div class="props"></div></div>
+      <div class="tree-pane"><h2 class="pane-h">Inhalt</h2><div class="tree"></div></div>
+    </aside>
+    <div class="split-v" role="separator" aria-orientation="vertical" aria-label="Breite der Seitenleiste ändern"></div>
+    <section class="mainp">
+      <div class="subtabs" role="tablist">${views.map(([k, l]) => `<button type="button" role="tab" data-v="${k}">${l}</button>`).join('')}</div>
+      <div class="svs" style="display:grid;min-height:0;min-width:0"></div>
+    </section>`;
+  const svs = el.querySelector('.svs');
+  for (const [k] of views){ const d = document.createElement('div'); d.className = 'sv'; d.dataset.v = k; svs.appendChild(d); }
+  el.querySelector('.subtabs').addEventListener('click', e => { const b = e.target.closest('button'); if (b) showView(tab, b.dataset.v); });
+  splitter(el.querySelector('.split-v'), el, '--left', 'x', 200, 640);
+  renderProps(tab); renderTree(tab);
+  showView(tab, views[0][0]);
+}
+function splitter(handle, target, prop, axis, min, max){
+  handle.addEventListener('pointerdown', e => {
+    e.preventDefault(); handle.setPointerCapture(e.pointerId);
+    const rect = target.getBoundingClientRect();
+    const move = ev => {
+      if (axis === 'x') target.style.setProperty(prop, Math.max(min, Math.min(max, ev.clientX - rect.left)) + 'px');
+      else { const v = Math.max(min, Math.min(rect.height - 120, ev.clientY - rect.top)); target.style.setProperty(prop, v + 'px'); }
+    };
+    const up = () => { handle.removeEventListener('pointermove', move); handle.removeEventListener('pointerup', up); };
+    handle.addEventListener('pointermove', move); handle.addEventListener('pointerup', up);
+  });
+}
+function showView(tab, k){
+  tab.view = k;
+  tab.el.querySelectorAll('.subtabs button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.v === k)));
+  tab.el.querySelectorAll('.sv').forEach(d => d.classList.toggle('on', d.dataset.v === k));
+  const sv = tab.el.querySelector(`.sv[data-v="${k}"]`);
+  if (!sv.dataset.built){ sv.dataset.built = '1'; ({mscons:buildMscons, vorg:buildVorg, aperak:buildAperak, contrl:buildContrl, segs:buildSegs, text:buildText})[k](tab, sv); }
+  if (k === 'mscons' && tab.chart) requestAnimationFrame(() => tab.chart.draw());
+}
+
+function renderProps(tab){
+  const r = tab.res, ic = r.ic, d = r.parsed.delims, unb = ic.unb;
+  const rows = [];
+  rows.push(['Dateiname', esc(tab.name)]);
+  rows.push(['Dateigröße', `${nf0.format(tab.size)} Bytes`]);
+  if (tab.hash) rows.push(['SHA-256', `<span class="mono" style="word-break:break-all">${esc(tab.hash)}</span>`]);
+  if (unb){
+    rows.push(['Zeichensatz', `${esc(g(unb,0,0))}${g(unb,0,1) ? ' (Syntaxversion ' + esc(g(unb,0,1)) + ')' : ''}`]);
+    const party = i => `<span class="mono">${esc(g(unb,i,0))}</span>${g(unb,i,1) ? ` <span class="lbl">${esc(PARTNER_QUAL[g(unb,i,1)] || g(unb,i,1))}</span>` : ''}`;
+    rows.push(['Absender', party(1)], ['Empfänger', party(2)]);
+    const dt = g(unb,3,0), tm = g(unb,3,1);
+    if (dt){
+      const ok = /^(\d{6}|\d{8})$/.test(dt) && /^\d{4}$/.test(tm);
+      rows.push(['Erstellt', ok ? esc(`${dt.slice(-2)}.${dt.slice(-4,-2)}.${dt.length === 6 ? '20' + dt.slice(0,2) : dt.slice(0,4)} ${tm.slice(0,2)}:${tm.slice(2,4)}`) : `<span class="warn">${esc(dt + ' ' + tm)}</span>`]);
+    }
+    rows.push(['Datenaustauschreferenz', `<span class="mono">${esc(g(unb,4))}</span>`]);
+    if (g(unb,6)) rows.push(['Anwendungsreferenz', esc(g(unb,6))]);
+    if (g(unb,10) === '1') rows.push(['Testkennzeichen', '<span class="warn">Testdatei</span>']);
+  }
+  const counts = {};
+  for (const m of ic.messages){ const k = `${m.type} ${m.rel || m.ver}`; counts[k] = (counts[k] || 0) + 1; }
+  rows.push(['Nachrichten', Object.entries(counts).map(([k, n]) => `${n} × ${esc(k)}`).join('<br>') || '–']);
+  const pr = [...new Set(ic.messages.flatMap(m => m.pruefis).concat(r.vorgaenge.map(v => v.pruefi)).filter(Boolean))];
+  if (pr.length) rows.push(['Prüfidentifikator', pr.map(p => `<span class="mono">${esc(p)}</span>${PRUEFI[p] ? ' ' + esc(PRUEFI[p]) : ''}`).join('<br>')]);
+  rows.push(['Nutzdatensegmente', nf0.format(r.parsed.segs.length)]);
+  rows.push(['Trennzeichen', `<span class="mono">${esc(d.term)}</span> Segment, <span class="mono">${esc(d.elem)}</span> Element, <span class="mono">${esc(d.comp)}</span> Gruppe<br><span class="mono">${esc(d.dec)}</span> Dezimal, <span class="mono">${esc(d.rel)}</span> Freigabe${d.una ? '' : ' <span class="lbl">(Standard, kein UNA)</span>'}`]);
+  rows.push(['Prüfergebnis', r.checks.length ? r.checks.map(c => `<span class="${c.warn ? 'warn' : 'bad'}">${esc(c.text)}</span>`).join('<br>') : '<span class="ok">keine Auffälligkeiten</span>']);
+  rows.push(['Zeitangaben', esc(tzLabel())]);
+  tab.el.querySelector('.props').innerHTML = `<table>${rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')}</table>`;
+}
+
+function renderTree(tab){
+  const r = tab.res;
+  let h = `<details open><summary><span class="k">${esc(tab.name)}</span></summary>`;
+  r.ic.messages.forEach(m => {
+    h += `<details open><summary><span class="k">${esc(m.type)}</span> <span class="m">Nachricht ${esc(m.ref)}${m.pruefis.length === 1 ? ', Prüfi ' + esc(m.pruefis[0]) : ''}</span></summary>`;
+    if (m.type === 'MSCONS'){
+      const locs = [];
+      r.series.filter(s => s.msg === m).forEach(s => { if (!locs.includes(s.loc)) locs.push(s.loc); });
+      for (const l of locs){
+        h += `<details open><summary><span class="k">${esc(l.id)}</span></summary>`;
+        l.series.forEach(s => { const i = r.series.indexOf(s); h += `<div class="leaf" data-kind="ser" data-i="${i}"><span class="k">${esc(s.obis || '?')}</span> <span class="m">${esc(s.kind)}, ${s.interval ? 'Menge' : 'Stand'} ${esc(fn(s.menge))} ${esc(s.unit)}</span></div>`; });
+        h += '</details>';
+      }
+    } else if (m.type === 'APERAK'){
+      const a = r.aperak.find(x => x.msg === m);
+      (a ? a.errors : []).forEach((e, j) => { h += `<div class="leaf" data-kind="err" data-i="${j}"><span class="k">${esc(e.code)}</span> <span class="m">${esc((e.texts[0] || '').slice(0, 60))}</span></div>`; });
+    }
+    r.vorgaenge.filter(v => v.msg === m).forEach(v => {
+      const i = r.vorgaenge.indexOf(v);
+      h += `<div class="leaf" data-kind="vorg" data-i="${i}">Vorgang <span class="k">${esc(v.nr)}</span> <span class="m">${esc(v.malo || v.melo || '')}</span></div>`;
+    });
+    h += '</details>';
+  });
+  h += '</details>';
+  const tree = tab.el.querySelector('.tree');
+  tree.innerHTML = h;
+  tree.onclick = e => {
+    const leaf = e.target.closest('.leaf'); if (!leaf) return;
+    tree.querySelectorAll('.leaf.active').forEach(x => x.classList.remove('active')); leaf.classList.add('active');
+    const i = +leaf.dataset.i;
+    if (leaf.dataset.kind === 'ser'){ showView(tab, 'mscons'); tab.serGrid.select(r.series[i], true); }
+    else if (leaf.dataset.kind === 'vorg'){ showView(tab, 'vorg'); tab.vorgGrid.select(r.vorgaenge[i], true); }
+    else if (leaf.dataset.kind === 'err') showView(tab, 'aperak');
+  };
+}
+
+/* ---------- Messwerte (MSCONS) ---------- */
+function buildMscons(tab, sv){
+  const r = tab.res;
+  sv.classList.add('split');
+  sv.innerHTML = `
+    <div class="blk">
+      <div class="toolbar"><input type="search" placeholder="Zählpunkt oder OBIS filtern" aria-label="Messwerte filtern"><span class="lbl cnt"></span><span class="spacer"></span><button type="button" class="btn small" data-a="csvt">Tabelle als CSV</button></div>
+      <div class="tw"></div>
+    </div>
+    <div class="split-h" role="separator" aria-label="Höhe der Tabelle ändern"></div>
+    <div class="chart-blk">
+      <div class="toolbar">
+        <span class="legend"><span><i style="background:var(--trace)"></i>Wert</span><span><i style="background:var(--warn);height:6px;width:6px;border-radius:50%"></i>Ersatz- oder Vorschlagswert</span></span>
+        <span class="spacer"></span>
+        <span class="lbl">Ziehen zum Zoomen, Doppelklick für den gesamten Zeitraum</span>
+        <div class="toggle" data-g="mode"><button type="button" data-m="line" aria-pressed="true">Linie</button><button type="button" data-m="step" aria-pressed="false">Stufen</button><button type="button" data-m="list" aria-pressed="false">Werteliste</button></div>
+        <button type="button" class="btn small" data-a="csvv">Werte als CSV</button>
+      </div>
+      <div style="display:grid;min-height:0">
+        <div class="chart-wrap"></div>
+        <div class="tw vals" hidden></div>
+      </div>
+    </div>`;
+  const cols = [
+    {label:'Zählpunkt', text:s => s.loc.id, cls:'mono'},
+    {label:'OBIS', text:s => s.obis, cls:'mono'},
+    {label:'Art', text:s => s.kind},
+    {label:'von', text:s => fd(s.from), sort:s => s.from ? +s.from : 0},
+    {label:'bis', text:s => fd(s.to), sort:s => s.to ? +s.to : 0},
+    {label:'Werte', text:s => nf0.format(s.count), sort:s => s.count, num:true},
+    {label:'Menge', text:s => fn(s.menge), sort:s => s.menge, csv:s => csvNum(s.menge), num:true},
+    {label:'Einheit', text:s => s.unit},
+    {label:'Minimum', text:s => s.min ? fn(s.min.v) : '', sort:s => s.min ? s.min.v : 0, csv:s => s.min ? csvNum(s.min.v) : '', num:true},
+    {label:'Minimum am', text:s => s.min ? fd(s.min.t) : '', sort:s => s.min && s.min.t ? +s.min.t : 0},
+    {label:'Maximum', text:s => s.max ? fn(s.max.v) : '', sort:s => s.max ? s.max.v : 0, csv:s => s.max ? csvNum(s.max.v) : '', num:true},
+    {label:'Maximum am', text:s => s.max ? fd(s.max.t) : '', sort:s => s.max && s.max.t ? +s.max.t : 0},
+    {label:'Ersatzwerte', text:s => s.subst ? nf0.format(s.subst) : '', sort:s => s.subst, num:true},
+    {label:'Absender', text:s => s.msg.header.ms || '', cls:'mono'},
+    {label:'Empfänger', text:s => s.msg.header.mr || '', cls:'mono'},
+    {label:'Nachricht', text:s => s.msg.ref, cls:'mono'}
+  ];
+  const cnt = sv.querySelector('.cnt');
+  const grid = new Grid(sv.querySelector('.tw'), cols, {
+    onSelect:s => showSeries(tab, s),
+    onRender:v => { cnt.textContent = `${nf0.format(v.length)} Kennzahl${v.length === 1 ? '' : 'en'}`; }
+  });
+  tab.serGrid = grid; tab.serCols = cols;
+  tab.chart = new Chart(sv.querySelector('.chart-wrap'));
+  tab.valGrid = new Grid(sv.querySelector('.vals'), valCols(), {rowClass:p => p.q && p.q !== '220' ? 'sub' : '', scroll:false});
+  grid.setRows(r.series);
+  sv.querySelector('input[type=search]').addEventListener('input', e => grid.setFilter(e.target.value));
+  splitter(sv.querySelector('.split-h'), sv, '--top', 'y', 70, 2000);
+  sv.querySelector('[data-g="mode"]').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    b.parentNode.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+    const list = b.dataset.m === 'list';
+    sv.querySelector('.chart-wrap').hidden = list; sv.querySelector('.vals').hidden = !list;
+    if (!list){ tab.chart.mode = b.dataset.m; requestAnimationFrame(() => tab.chart.draw()); }
+  });
+  sv.querySelector('[data-a="csvt"]').onclick = () => saveFile(baseName(tab) + '_messwerte.csv', toCsv(cols, grid.view));
+  sv.querySelector('[data-a="csvv"]').onclick = () => {
+    const s = grid.sel; if (!s){ toast('Bitte zuerst eine Zeile auswählen.'); return; }
+    saveFile(`${baseName(tab)}_${safeName(s.loc.id)}_${(s.obis || 'werte').replace(/[^\w.-]+/g, '-')}.csv`, toCsv(valCols(), s.values));
+  };
+  if (r.series.length) grid.select(r.series[0], false);
+}
+function csvNum(v){ return isNaN(v) ? '' : String(fixNum(v)).replace('.', ','); }
+/* Messwerte verlustfrei exportieren: Originalschreibweise statt gerundeter oder in Exponentialform umgewandelter Zahl */
+function csvRaw(p){ return isNaN(p.v) ? '' : (p.raw || String(p.v)).trim().replace(/^\+/, '').replace('.', ','); }
+function baseName(tab){ return safeName(tab.name.replace(/\.[^.]+$/, '')); }
+function valCols(){
+  return [
+    {label:'Beginn', text:p => fd(p.t), sort:p => p.t ? +p.t : 0},
+    {label:'Ende', text:p => fd(p.t2), sort:p => p.t2 ? +p.t2 : 0},
+    {label:'Wert', text:p => fn(p.v), sort:p => p.v, csv:csvRaw, num:true},
+    {label:'Qualifier', text:p => p.q ? `${p.q} ${QUAL.QTY[p.q] || ''}`.trim() : ''},
+    {label:'Status', text:p => p.sts.join(' / ')}
+  ];
+}
+function showSeries(tab, s){
+  if (!s) return;
+  const data = s.values.filter(v => v.t).map(v => ({t:+v.t, t2:v.t2 ? +v.t2 : null, v:v.v, q:v.q}));
+  tab.chart.set(data, `${s.loc.id}  ${s.obis}  ${fd(s.from)} bis ${fd(s.to)}`, s.unit);
+  tab.valGrid.setRows(s.values);
+  tab.el.querySelectorAll('.tree .leaf.active').forEach(x => x.classList.remove('active'));
+  const leaf = tab.el.querySelector(`.tree .leaf[data-kind="ser"][data-i="${tab.res.series.indexOf(s)}"]`);
+  if (leaf){ leaf.classList.add('active'); leaf.scrollIntoView({block:'nearest'}); }
+}
+
+/* ---------- Vorgänge (UTILMD, UTILTS, ...) ---------- */
+function buildVorg(tab, sv){
+  const r = tab.res;
+  sv.classList.add('split');
+  sv.innerHTML = `
+    <div class="blk">
+      <div class="toolbar"><input type="search" placeholder="Vorgang, Lokation oder Prüfi filtern" aria-label="Vorgänge filtern"><span class="lbl cnt"></span><span class="spacer"></span><button type="button" class="btn small" data-a="csv">Tabelle als CSV</button></div>
+      <div class="tw"></div>
+    </div>
+    <div class="split-h" role="separator" aria-label="Höhe der Tabelle ändern"></div>
+    <div class="detail"><div class="detail-inner"></div></div>`;
+  const cols = [
+    {label:'Vorgang', text:v => v.nr, cls:'mono'},
+    {label:'Typ', text:v => v.msg.type},
+    {label:'Prüfi', text:v => v.pruefi, cls:'mono'},
+    {label:'Bedeutung', text:v => PRUEFI[v.pruefi] || ''},
+    {label:'Marktlokation', text:v => v.malo, cls:'mono'},
+    {label:'Messlokation', text:v => v.melo, cls:'mono'},
+    {label:'Zeitangaben', text:v => v.dtms.slice(0, 3).map(d => `${QUAL.DTM[d.q] || d.q}: ${fdtm(d)}`).join(', ')},
+    {label:'Status', text:v => v.status},
+    {label:'Segmente', text:v => nf0.format(v.segs.length), sort:v => v.segs.length, num:true},
+    {label:'Nachricht', text:v => v.msg.ref, cls:'mono'}
+  ];
+  const cnt = sv.querySelector('.cnt');
+  const grid = new Grid(sv.querySelector('.tw'), cols, {
+    onSelect:v => showVorgang(tab, v),
+    onRender:v => { cnt.textContent = `${nf0.format(v.length)} Vorg${v.length === 1 ? 'ang' : 'änge'}`; }
+  });
+  tab.vorgGrid = grid;
+  grid.setRows(r.vorgaenge);
+  sv.querySelector('input[type=search]').addEventListener('input', e => grid.setFilter(e.target.value));
+  sv.querySelector('[data-a="csv"]').onclick = () => saveFile(baseName(tab) + '_vorgaenge.csv', toCsv(cols, grid.view));
+  splitter(sv.querySelector('.split-h'), sv, '--top', 'y', 70, 2000);
+  if (r.vorgaenge.length) grid.select(r.vorgaenge[0], false);
+}
+function showVorgang(tab, v){
+  const box = tab.el.querySelector('.sv[data-v="vorg"] .detail-inner');
+  let h = '';
+  if (v.formula) h += formulaHtml(v.formula);
+  h += `<h3>Segmente des Vorgangs ${esc(v.nr)}</h3>` + segTableHtml(v.segs);
+  box.innerHTML = h;
+  tab.el.querySelectorAll('.tree .leaf.active').forEach(x => x.classList.remove('active'));
+  const leaf = tab.el.querySelector(`.tree .leaf[data-kind="vorg"][data-i="${tab.res.vorgaenge.indexOf(v)}"]`);
+  if (leaf){ leaf.classList.add('active'); leaf.scrollIntoView({block:'nearest'}); }
+}
+function formulaHtml(f){
+  let h = '<h3>Berechnungsformel</h3><div class="formula">';
+  h += '<dl class="kv">';
+  h += `<dt>Marktlokation</dt><dd><span class="chip">${esc(f.malo || '–')}</span></dd>`;
+  if (f.gueltig) h += `<dt>Gültig ab</dt><dd>${esc(fdtm(f.gueltig))}</dd>`;
+  if (f.status) h += `<dt>Status</dt><dd>${esc(f.status)} ${esc(UTILTS.status[f.status] || '')}</dd>`;
+  if (f.richtung) h += `<dt>Lieferrichtung</dt><dd>${esc(UTILTS.richtung[f.richtung] || f.richtung)}</dd>`;
+  if (f.zwecke.length) h += `<dt>Verwendungszweck</dt><dd>${f.zwecke.map(z => esc(UTILTS.zweck[z] || z)).join(', ')}</dd>`;
+  h += '</dl>';
+  if (f.root){
+    h += `<div class="eq"><b>Marktlokation</b> = ${esc(f.expr(f.root))}</div>`;
+    if (f.melos.length){
+      h += '<table class="grid" style="min-width:0;margin-bottom:10px"><thead><tr><th>Kürzel</th><th>Messlokation</th><th>Energieflussrichtung</th><th>Verlustfaktor Trafo</th><th>Verlustfaktor Leitung</th></tr></thead><tbody>';
+      for (const id of f.melos){
+        const ps = [...f.steps.values()].flat().filter(p => p.melo === id);
+        const p = ps[0];
+        h += `<tr><td class="mono">${esc(f.alias(id))}</td><td class="mono">${esc(id)}</td><td>${esc(UTILTS.fluss[p.flow] || p.flow)}</td><td class="n">${p.lossT != null && !isNaN(p.lossT) ? esc(fn(p.lossT)) : ''}</td><td class="n">${p.lossL != null && !isNaN(p.lossL) ? esc(fn(p.lossL)) : ''}</td></tr>`;
+      }
+      h += '</tbody></table>';
+    }
+    h += '<table class="grid" style="min-width:0"><thead><tr><th>Rechenschritt</th><th>Operator</th><th>Bestandteil</th></tr></thead><tbody>';
+    for (const [id, parts] of f.steps) for (const p of parts){
+      h += `<tr><td class="mono">${esc(id)}</td><td>${esc(UTILTS.op[p.op] || p.op)}</td><td>${p.melo ? `<span class="mono">${esc(f.alias(p.melo))}</span> ${esc(p.melo)}` : `Rechenschritt <span class="mono">${esc(p.ref)}</span>`}</td></tr>`;
+    }
+    h += '</tbody></table>';
+  } else if (f.status === 'Z33') h += '<p class="warn">Status „angefügt“, aber kein Verweis auf einen Rechenschritt gefunden.</p>';
+  return h + '</div>';
+}
+function segTableHtml(segs){
+  return '<table class="grid" style="min-width:0"><thead><tr><th class="n">Nr.</th><th>Segment</th><th>Bedeutung</th><th>Inhalt</th></tr></thead><tbody>' +
+    segs.map(s => `<tr><td class="n">${s.i}</td><td class="mono">${esc(s.tag)}</td><td>${esc(describeSeg(s))}</td><td class="mono">${esc(s.raw.slice(s.tag.length + 1))}</td></tr>`).join('') + '</tbody></table>';
+}
+
+/* ---------- APERAK ---------- */
+function buildAperak(tab, sv){
+  sv.classList.add('single');
+  let h = '<div></div><div class="detail"><div class="detail-inner">';
+  tab.res.aperak.forEach(a => {
+    const m = a.msg;
+    h += `<h3>APERAK ${esc(m.header.docno || m.ref)}</h3><dl class="kv">`;
+    h += `<dt>Dokumentart</dt><dd class="mono">${esc(m.header.bgm || '')}</dd>`;
+    if (m.header.date) h += `<dt>Nachrichtendatum</dt><dd>${esc(fdtm(m.header.date))}</dd>`;
+    h += `<dt>Absender</dt><dd class="mono">${esc(m.header.ms || '')}</dd><dt>Empfänger</dt><dd class="mono">${esc(m.header.mr || '')}</dd>`;
+    a.refs.forEach(x => { h += `<dt>${esc(QUAL.RFF[x.q] || 'Referenz ' + x.q)}</dt><dd class="mono">${esc(x.v)}</dd>`; });
+    a.dtms.filter(d => d.q !== '137').forEach(d => { h += `<dt>${esc(QUAL.DTM[d.q] || 'Datum ' + d.q)}</dt><dd>${esc(fdtm(d))}</dd>`; });
+    a.texts.forEach(t => { h += `<dt>Hinweis</dt><dd>${esc(t)}</dd>`; });
+    h += '</dl>';
+    h += '<table class="grid" style="min-width:0"><thead><tr><th class="n">Nr.</th><th>Fehlercode</th><th>Beschreibung</th><th>Referenzen</th></tr></thead><tbody>';
+    a.errors.forEach((e, i) => {
+      h += `<tr><td class="n">${i + 1}</td><td class="mono">${esc(e.code)}</td><td class="wrap">${esc(e.texts.join(' '))}</td><td class="mono">${e.refs.map(x => esc(`${QUAL.RFF[x.q] || x.q}: ${x.v}`)).join('<br>')}</td></tr>`;
+    });
+    if (!a.errors.length) h += '<tr><td colspan="4">Keine Fehlerangaben (ERC) enthalten.</td></tr>';
+    h += '</tbody></table>';
+  });
+  sv.innerHTML = h + '</div></div>';
+}
+
+/* ---------- CONTRL ---------- */
+function buildContrl(tab, sv){
+  sv.classList.add('single');
+  sv.innerHTML = '<div></div><div class="tw"></div>';
+  const cols = [
+    {label:'Ebene', text:x => x.level},
+    {label:'Referenz', text:x => x.ref, cls:'mono'},
+    {label:'Bezug', text:x => x.about || x.pos, cls:'mono'},
+    {label:'Ergebnis', text:x => x.action ? `${x.action} ${CONTRL_ACTION[x.action] || ''}` : '', html:x => x.action ? `<span class="${x.action === '4' ? 'bad' : 'ok'}">${esc(x.action)} ${esc(CONTRL_ACTION[x.action] || '')}</span>` : ''},
+    {label:'Fehler', text:x => x.err ? `${x.err} ${CONTRL_ERR[x.err] || ''}` : ''}
+  ];
+  new Grid(sv.querySelector('.tw'), cols).setRows(tab.res.contrl);
+}
+
+/* ---------- Segmente ---------- */
+function buildSegs(tab, sv){
+  sv.classList.add('single');
+  sv.innerHTML = `<div class="toolbar"><input type="search" placeholder="Segmente filtern, z. B. LOC oder Z13" aria-label="Segmente filtern"><span class="lbl cnt"></span></div><div class="tw"></div>`;
+  const cols = [
+    {label:'Nr.', text:s => s.i, num:true},
+    {label:'Segment', text:s => s.tag, cls:'mono'},
+    {label:'Bedeutung', text:s => describeSeg(s)},
+    {label:'Inhalt', text:s => s.raw.slice(s.tag.length + 1), cls:'mono'}
+  ];
+  const cnt = sv.querySelector('.cnt');
+  const grid = new Grid(sv.querySelector('.tw'), cols, {onRender:v => { cnt.textContent = `${nf0.format(v.length)} Segmente`; }});
+  grid.setRows(tab.res.parsed.segs);
+  sv.querySelector('input').addEventListener('input', e => grid.setFilter(e.target.value));
+}
+
+/* ---------- EDI-Text ---------- */
+function buildText(tab, sv){
+  sv.classList.add('single');
+  sv.innerHTML = `<div class="toolbar"><input type="search" placeholder="Im Text suchen (Enter: nächster Treffer)" aria-label="Im Text suchen"><span class="lbl cnt"></span><span class="spacer"></span><button type="button" class="btn small" data-a="copy">Text kopieren</button></div><pre class="edi" tabindex="0"></pre>`;
+  const pre = sv.querySelector('pre'), d = tab.res.parsed.delims;
+  const segs = tab.res.parsed.segs;
+  const lines = segs.map(s => s.raw + d.term);
+  const shownN = Math.min(lines.length, LIMITS.textLines);
+  const sepRe = new RegExp('(' + [d.elem, d.comp, d.term].map(c => c.replace(/[\]\\^\-.*+?${}()|[\/]/g, '\\$&')).join('|') + ')');
+  const render = (term) => {
+    let h = '', hits = 0;
+    const tl = term ? term.toLowerCase() : '';
+    for (let i = 0; i < shownN; i++){
+      const raw = lines[i], tag = segs[i].tag;
+      let body = colorSep(raw.slice(tag.length));
+      if (tl && raw.toLowerCase().includes(tl)){
+        const re = new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+        const parts = raw.slice(tag.length).split(re), found = raw.slice(tag.length).match(re) || [];
+        body = parts.map((p, j) => colorSep(p) + (j < found.length ? `<mark>${esc(found[j])}</mark>` : '')).join('');
+        hits += found.length;
+        if (raw.slice(0, tag.length).toLowerCase().includes(tl)) hits++;
+      } else body = colorSep(body);
+      h += `<span class="l"><span class="ln">${i + 1}</span><span class="t">${esc(tag)}</span>${body}</span>`;
+    }
+    if (shownN < lines.length) h += `<span class="l"><span class="ln"></span>… ${nf0.format(lines.length - shownN)} weitere Segmente ausgeblendet (Anzeigegrenze). „Text kopieren“ enthält alle Segmente.</span>`;
+    pre.innerHTML = h;
+    return hits;
+  };
+  /* erst zerlegen, dann maskieren: so kann ein Trennzeichen wie "l" oder ";" keine HTML-Entität zerstören */
+  function colorSep(s){ return s.split(sepRe).map((p, i) => i % 2 ? `<span class="s">${esc(p)}</span>` : esc(p)).join(''); }
+  render('');
+  const input = sv.querySelector('input'), cnt = sv.querySelector('.cnt');
+  let cur = -1, timer;
+  const jump = () => {
+    const marks = pre.querySelectorAll('mark'); if (!marks.length) return;
+    marks.forEach(m => m.classList.remove('cur'));
+    cur = (cur + 1) % marks.length; marks[cur].classList.add('cur'); marks[cur].scrollIntoView({block:'center'});
+    cnt.textContent = `Treffer ${cur + 1} von ${marks.length}`;
+  };
+  input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => {
+    const t = input.value.trim(); cur = -1; const n = render(t);
+    cnt.textContent = t ? (n ? `${nf0.format(pre.querySelectorAll('mark').length)} Treffer` : 'Keine Treffer') : '';
+    if (t) jump();
+  }, 200); });
+  input.addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); jump(); } });
+  sv.querySelector('[data-a="copy"]').onclick = async () => {
+    try { await navigator.clipboard.writeText(lines.join('\n')); toast('Text in die Zwischenablage kopiert'); }
+    catch(e){ const rng = document.createRange(); rng.selectNodeContents(pre); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(rng); toast('Text markiert, mit Strg+C kopieren'); }
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ *  Zeitzone umschalten
+ * ------------------------------------------------------------------ */
+document.getElementById('tzToggle').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b || state.tz === b.dataset.tz) return;
+  state.tz = b.dataset.tz;
+  b.parentNode.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+  for (const t of state.tabs){
+    if (t.err) continue;
+    renderProps(t); renderTree(t);
+    if (t.serGrid){ t.serGrid.render(); showSeries(t, t.serGrid.sel); }
+    if (t.vorgGrid){ t.vorgGrid.render(); if (t.vorgGrid.sel) showVorgang(t, t.vorgGrid.sel); }
+    const ap = t.el.querySelector('.sv[data-v="aperak"]');
+    if (ap && ap.dataset.built){ ap.innerHTML = ''; ap.classList.remove('single'); buildAperak(t, ap); }
+  }
+});
+
+/* ------------------------------------------------------------------ *
+ *  Drag & Drop und Dateiauswahl
+ * ------------------------------------------------------------------ */
+const fileInput = document.getElementById('fileInput');
+document.getElementById('btnOpen').onclick = () => fileInput.click();
+document.getElementById('btnOpen2').onclick = () => fileInput.click();
+document.getElementById('btnCloseAll').onclick = closeAll;
+fileInput.onchange = () => { openFiles([...fileInput.files]); fileInput.value = ''; };
+let dragDepth = 0;
+const hasFiles = e => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+window.addEventListener('dragenter', e => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth++; document.body.classList.add('dragging'); });
+window.addEventListener('dragover', e => { if (!hasFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+window.addEventListener('dragleave', e => { if (!hasFiles(e)) return; dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) document.body.classList.remove('dragging'); });
+window.addEventListener('drop', async e => {
+  if (!hasFiles(e)) return;
+  e.preventDefault(); dragDepth = 0; document.body.classList.remove('dragging');
+  const files = [];
+  const items = e.dataTransfer.items ? [...e.dataTransfer.items] : [];
+  const entries = items.map(it => it.webkitGetAsEntry ? it.webkitGetAsEntry() : null);
+  if (entries.some(en => en && en.isDirectory)){
+    for (const en of entries) if (en) await collectEntry(en, files);
+  } else files.push(...e.dataTransfer.files);
+  if (!files.length){ toast('Keine Dateien gefunden.'); return; }
+  openFiles(files);
+});
+function collectEntry(entry, out, depth = 0){
+  return new Promise(res => {
+    if (out.length >= LIMITS.files || depth > 8) return res();
+    if (entry.isFile) entry.file(f => { out.push(f); res(); }, () => res());
+    else if (entry.isDirectory){
+      const rd = entry.createReader(), all = [];
+      const read = () => rd.readEntries(async ents => {
+        if (!ents.length){ for (const en of all) await collectEntry(en, out, depth + 1); res(); }
+        else { all.push(...ents); read(); }
+      }, () => res());
+      read();
+    } else res();
+  });
+}
+window.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'o'){ e.preventDefault(); fileInput.click(); }
+});
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { for (const t of state.tabs) if (t.chart) t.chart.draw(); });
+
+/* ------------------------------------------------------------------ *
+ *  Beispieldateien (frei erfundene Daten)
+ * ------------------------------------------------------------------ */
+function sampleFiles(){
+  const mp1 = '9900000000002', mp2 = '9900000000003';
+  const ts = t => { const d = new Date(t); const p = n => String(n).padStart(2, '0'); return `${d.getUTCFullYear()}${p(d.getUTCMonth()+1)}${p(d.getUTCDate())}${p(d.getUTCHours())}${p(d.getUTCMinutes())}`; };
+  const zp = (k, n) => 'DE' + '0'.repeat(11) + k + String(n).padStart(19, '0');
+  let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const wrap = (type, ver, body) => {
+    const unh = [`UNH+1+${type}:${ver}`, ...body];
+    return ["UNA:+.? '", `UNB+UNOC:3+${mp1}:500+${mp2}:500+261005:0830+BSP${type}++TL`, ...unh, `UNT+${unh.length + 1}+1`, `UNZ+1+BSP${type}`].join("'\n") + "'\n";
+  };
+  const start = Date.UTC(2026, 9, 3, 22, 0), Q = 900000;
+  const ms = ['BGM+7+BSP-MSCONS-1+9', 'DTM+137:202610050630?+00:303', 'RFF+Z13:13025', `NAD+MS+${mp1}::293`, `NAD+MR+${mp2}::293`, 'UNS+D'];
+  const series = [
+    {zp:zp('S', 1), obis:'1-1?:1.29.0', f:h => 0.06 + 0.05 * rnd() + (h >= 5 && h < 7 ? 0.25 : 0) + (h >= 16 && h < 20 ? 0.32 : 0)},
+    {zp:zp('S', 1), obis:'1-1?:2.29.0', f:h => Math.max(0, Math.sin((h - 4.5) / 12 * Math.PI)) * (0.9 + 0.2 * rnd())},
+    {zp:zp('S', 2), obis:'1-1?:1.29.0', f:h => 2.2 + 0.6 * rnd() + (h >= 4 && h < 15 ? 3.4 : 0)}
+  ];
+  let lastZp = '';
+  series.forEach((s, si) => {
+    if (s.zp !== lastZp){ ms.push('NAD+DP', `LOC+172+${s.zp}`, `DTM+163:${ts(start)}?+00:303`, `DTM+164:${ts(start + 96 * Q)}?+00:303`); lastZp = s.zp; }
+    ms.push(`LIN+${si + 1}`, `PIA+5+${s.obis}:SRW`);
+    for (let i = 0; i < 96; i++){
+      const t = start + i * Q, h = ((t / 3600000) % 24 + 24) % 24;
+      const q = (si === 0 && i >= 40 && i < 44) ? '67' : '220';
+      ms.push(`QTY+${q}:${s.f(h).toFixed(3)}:KWH`, `DTM+163:${ts(t)}?+00:303`, `DTM+164:${ts(t + Q)}?+00:303`);
+    }
+  });
+  const ut = ['BGM+Z36+BSP-UTILTS-1', 'DTM+137:202610050630:203', `NAD+MS+${mp1}::293`, `NAD+MR+${mp2}::293`,
+    'IDE+24+BSPV0001', 'LOC+172+51238696781', 'DTM+157:202610312300:203', 'STS+Z23+Z33', 'RFF+Z13:25001', 'CCI+Z30++Z07',
+    'SEQ+Z36', 'RFF+Z23:1', 'CCI+Z27', 'CAV+Z84', 'CAV+Z85',
+    'SEQ+Z37+1', `RFF+Z19:${zp('M', 1)}`, 'CCI+++Z86', 'CAV+Z69', 'CCI+++Z87', 'CAV+Z71', 'CCI+++Z16', 'CAV+Z28:::1.02',
+    'SEQ+Z37+1', 'RFF+Z23:2', 'CCI+++Z86', 'CAV+Z70',
+    'SEQ+Z37+2', `RFF+Z19:${zp('M', 2)}`, 'CCI+++Z86', 'CAV+Z69', 'CCI+++Z87', 'CAV+Z72',
+    'SEQ+Z37+2', `RFF+Z19:${zp('M', 3)}`, 'CCI+++Z86', 'CAV+Z69', 'CCI+++Z87', 'CAV+Z72',
+    'IDE+24+BSPV0002', 'LOC+172+51238696782', 'DTM+157:202610312300:203', 'STS+Z23+Z40', 'RFF+Z13:25001', 'CCI+Z30++Z07'];
+  const ap = ['BGM+313+BSP-APERAK-1', 'DTM+137:202610050645?+00:303', 'RFF+ACE:BSP-MSCONS-1', 'DTM+171:202610050630?+00:303',
+    `NAD+MS+${mp2}::293`, `NAD+MR+${mp1}::293`, 'ERC+Z29', 'FTX+ABO+++Beispieltext?: Zählpunkt ist dem Empfänger nicht bekannt', `RFF+ACW:1`];
+  return [
+    ['Beispiel_MSCONS_Lastgang.txt', wrap('MSCONS', 'D:04B:UN:2.4c', ms)],
+    ['Beispiel_UTILTS_Berechnungsformel.txt', wrap('UTILTS', 'D:18A:UN:1.0a', ut)],
+    ['Beispiel_APERAK.txt', wrap('APERAK', 'D:07B:UN:2.1h', ap)]
+  ];
+}
+document.getElementById('btnSample').onclick = () => {
+  let last = null;
+  for (const [n, txt] of sampleFiles()) last = addTab(n, new Blob([txt]).size, txt);
+  if (last) activate(state.tabs[state.tabs.length - 3] || last);
+};
+</script>
+</body>
+</html>
