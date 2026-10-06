@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>EDIFACT-Viewer</title>
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-D5MQeQix79l4nayxN/8JaKNRAIMOCrDRf6Soq7KbvoM='; style-src-elem 'sha256-AqvXT2gXVt0faCn7QgWDs8mns8NID78YyQ0DUUCXPuw='; style-src-attr 'unsafe-inline'; img-src data: blob:; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-epA0Rf/gtyXHN9fNC2bOVhoYoJ8cViFx+sXkpKGESIc='; style-src-elem 'sha256-AqvXT2gXVt0faCn7QgWDs8mns8NID78YyQ0DUUCXPuw='; style-src-attr 'unsafe-inline'; img-src data: blob:; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="color-scheme" content="light dark">
 <style>
@@ -896,10 +896,11 @@ class Chart {
     this.plot = {...P, t0, t1};
     const X = t => P.x + (t - t0) / (t1 - t0) * P.w;
     const Yp = v => P.y + P.h - (v - Y.lo) / (Y.hi - Y.lo) * P.h;
-    // Raster
+    // Raster (auf die Zeichenfläche begrenzt, damit nichts durch Titel oder Beschriftung läuft)
+    ctx.save(); ctx.beginPath(); ctx.rect(P.x, P.y, P.w, P.h); ctx.clip();
     ctx.lineWidth = 1;
     ctx.strokeStyle = col.minor; ctx.beginPath();
-    for (let v = Y.lo; v <= Y.hi + Y.step / 2; v += Y.step / 5){ const y = Math.round(Yp(v)) + .5; ctx.moveTo(P.x, y); ctx.lineTo(P.x + P.w, y); }
+    for (let v = Y.lo; v <= Y.hi + Y.step / 1e6; v += Y.step / 5){ const y = Math.round(Yp(v)) + .5; ctx.moveTo(P.x, y); ctx.lineTo(P.x + P.w, y); }
     ctx.stroke();
     const ticks = timeTicks(t0, t1, P.w);
     ctx.beginPath();
@@ -910,6 +911,7 @@ class Chart {
     for (const tk of ticks.major){ const x = Math.round(X(tk.t)) + .5; ctx.moveTo(x, P.y); ctx.lineTo(x, P.y + P.h); }
     ctx.stroke();
     if (Y.lo < 0){ ctx.strokeStyle = col.muted; ctx.beginPath(); const y = Math.round(Yp(0)) + .5; ctx.moveTo(P.x, y); ctx.lineTo(P.x + P.w, y); ctx.stroke(); }
+    ctx.restore();
     ctx.strokeStyle = col.line; ctx.strokeRect(P.x + .5, P.y + .5, P.w - 1, P.h - 1);
     // Beschriftung
     ctx.font = `11px ${font}`; ctx.fillStyle = col.muted; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
